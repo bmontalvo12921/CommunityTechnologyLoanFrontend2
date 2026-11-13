@@ -107,21 +107,47 @@ CommunityTechnologyLoanFrontend/
 │   └── styles.css
 │
 └── js/
-    └── app.js
+    ├── config.js   (API base URL and tenant)
+    ├── api.js      (API client: token, requests, routes)
+    └── app.js      (UI, pages, routing)
+```
 
-Running the Frontend
+## Running the Frontend
 
-Clone the repository:
+The frontend has no build step, but it now reads all inventory and center data from the Inventory API, so a backend must be reachable.
 
-git clone https://github.com/lmonserratt/CommunityTechnologyLoanFrontend.git
+`js/config.js` picks the backend from the page's hostname:
 
-Navigate to the project:
+| Front served from | Backend used |
+| --- | --- |
+| `localhost` or `127.0.0.1` | `http://127.0.0.1:3020` (local `inventory-api`) |
+| anywhere else (Render, `file://`) | `https://inventory-api-1-lj9t.onrender.com` |
 
-cd CommunityTechnologyLoanFrontend
+### Local development (local backend)
 
-Open index.html in a web browser.
+1. Start the backend (`inventory-api`) on port 3020; see that repository's README (`npm install`, create `.env` with a `JWT_SECRET` of at least 32 characters, `npm run dev`).
+2. Serve this folder over HTTP on `127.0.0.1`, for example:
 
-The frontend does not currently require a build system or package manager.
+   ```sh
+   git clone https://github.com/lmonserratt/CommunityTechnologyLoanFrontend.git
+   cd CommunityTechnologyLoanFrontend
+   npx serve -l tcp://127.0.0.1:5500 .
+   ```
+
+3. Open http://127.0.0.1:5500 and sign in with a demo account (`admin@orlando.gov` / `Admin123!` or `staff@orlando.gov` / `Staff123!`).
+
+Opening `index.html` directly from disk (`file://`) uses the Render backend, not the local one.
+
+### Server wake-up
+
+On load, the app calls `GET /health` and shows "Connecting to the server…" until the backend answers. The free Render instance sleeps when idle and can take about a minute to start; the app retries every 3 seconds for up to 2.5 minutes and then shows a **Try Again** button.
+
+### Data sources
+
+- Dashboard, Device Inventory, Device Details, Edit Device, Add Device and Outreach Centers read from `GET /v1/inventory` and `GET /v1/centers` (all pages, 100 per request). Nothing about devices or centers is stored in `localStorage`.
+- Add Device sends `POST /v1/inventory` with the `centerId` chosen from the API's centers.
+- Edit Device sends `PATCH /v1/inventory/:deviceId` with only the fields that changed. Device status cannot be edited there; it changes through loans and maintenance.
+- Users and the demo login are still local to the browser; the backend has no user or login routes.
 
 Development Status
 Phase 1 — UI/UX Prototype

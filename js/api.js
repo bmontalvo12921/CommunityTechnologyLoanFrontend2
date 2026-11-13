@@ -702,6 +702,30 @@
 
 
     // ============================================================
+    // QUERY STRING HELPER
+    // ============================================================
+
+    function withQuery(path, params) {
+
+        if (!params) {
+            return path;
+        }
+
+        const query = new URLSearchParams();
+
+        Object.entries(params).forEach(([key, value]) => {
+            if (value !== undefined && value !== null && value !== "") {
+                query.set(key, String(value));
+            }
+        });
+
+        const text = query.toString();
+
+        return text ? `${path}?${text}` : path;
+    }
+
+
+    // ============================================================
     // DEVICE API
     // ============================================================
 
@@ -719,12 +743,13 @@
         },
 
         /**
-         * Get all devices.
+         * Get devices. Optional params: { limit, cursor, ...filters }.
+         * Response: { data: [...], page: { limit, nextCursor } }
          */
-        list: async function () {
+        list: async function (params) {
 
             return apiGet(
-                API_ROUTES.devices.list
+                withQuery(API_ROUTES.devices.list, params)
             );
         },
 
@@ -785,12 +810,12 @@
     const centerApi = {
 
         /**
-         * Get all outreach centers.
+         * Get outreach centers. Optional params: { limit, cursor, ...filters }.
          */
-        list: async function () {
+        list: async function (params) {
 
             return apiGet(
-                API_ROUTES.centers.list
+                withQuery(API_ROUTES.centers.list, params)
             );
         },
 
@@ -855,12 +880,12 @@
     const loanApi = {
 
         /**
-         * Get all loans.
+         * Get loans. Optional params: { limit, cursor, ...filters }.
          */
-        list: async function () {
+        list: async function (params) {
 
             return apiGet(
-                API_ROUTES.loans.list
+                withQuery(API_ROUTES.loans.list, params)
             );
         },
 
@@ -1000,11 +1025,50 @@
 
     const healthApi = {
 
-        check: async function () {
+        /**
+         * GET /health without authentication (no token request), so it
+         * can be used to wake up a sleeping server. Resolves to the
+         * parsed body when the server answers 2xx; rejects otherwise or
+         * when the request takes longer than timeoutMs.
+         */
+        check: async function (timeoutMs = 10000) {
 
-            return apiGet(
-                API_ROUTES.health
-            );
+            const controller =
+                typeof AbortController !== "undefined"
+                    ? new AbortController()
+                    : null;
+
+            const timer = controller
+                ? setTimeout(() => controller.abort(), timeoutMs)
+                : null;
+
+            try {
+
+                const response =
+                    await fetch(
+                        getApiBaseUrl() + API_ROUTES.health,
+                        {
+                            method: "GET",
+                            headers: { "Accept": "application/json" },
+                            cache: "no-store",
+                            signal: controller ? controller.signal : undefined
+                        }
+                    );
+
+                if (!response.ok) {
+                    throw new Error(
+                        `Health check failed: ${response.status} ${response.statusText}`
+                    );
+                }
+
+                return await response.json().catch(() => ({}));
+
+            } finally {
+
+                if (timer) {
+                    clearTimeout(timer);
+                }
+            }
         }
     };
 

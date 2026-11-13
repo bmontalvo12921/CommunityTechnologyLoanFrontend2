@@ -15,116 +15,11 @@
        currentPage: "Dashboard",
        currentUser: null,
    
-       devices: [
-           {
-               id: 1,
-               assetTag: "ORL-LT-0042",
-               serialNumber: "DL5540ORL0042",
-               type: "Laptop",
-               manufacturer: "Dell",
-               model: "Latitude 5540",
-               status: "Available",
-               center: "Englewood",
-               assignedTo: "",
-               purchaseDate: "2025-01-15",
-               vendor: "Dell Technologies",
-               warranty: "2028-01-15"
-           },
-           {
-               id: 2,
-               assetTag: "ORL-LT-0043",
-               serialNumber: "DL5540ORL0043",
-               type: "Laptop",
-               manufacturer: "Dell",
-               model: "Latitude 5540",
-               status: "Assigned",
-               center: "Englewood",
-               assignedTo: "Community Services",
-               purchaseDate: "2025-01-15",
-               vendor: "Dell Technologies",
-               warranty: "2028-01-15"
-           },
-           {
-               id: 3,
-               assetTag: "ORL-TB-0018",
-               serialNumber: "IPAD10ORL0018",
-               type: "Tablet",
-               manufacturer: "Apple",
-               model: "iPad 10th Gen",
-               status: "Available",
-               center: "Hankins",
-               assignedTo: "",
-               purchaseDate: "2025-02-10",
-               vendor: "Apple",
-               warranty: "2026-02-10"
-           },
-           {
-               id: 4,
-               assetTag: "ORL-DK-0011",
-               serialNumber: "HP800G9ORL0011",
-               type: "Desktop",
-               manufacturer: "HP",
-               model: "EliteDesk 800 G9",
-               status: "Maintenance",
-               center: "Barnett",
-               assignedTo: "",
-               purchaseDate: "2024-11-05",
-               vendor: "CDW",
-               warranty: "2027-11-05"
-           },
-           {
-               id: 5,
-               assetTag: "ORL-MN-0025",
-               serialNumber: "DELLP2425ORL25",
-               type: "Monitor",
-               manufacturer: "Dell",
-               model: "P2425H",
-               status: "Available",
-               center: "Englewood",
-               assignedTo: "",
-               purchaseDate: "2025-03-20",
-               vendor: "Dell Technologies",
-               warranty: "2028-03-20"
-           },
-           {
-               id: 6,
-               assetTag: "ORL-LT-0044",
-               serialNumber: "DL5540ORL0044",
-               type: "Laptop",
-               manufacturer: "Dell",
-               model: "Latitude 5540",
-               status: "Assigned",
-               center: "Hankins",
-               assignedTo: "Digital Literacy Program",
-               purchaseDate: "2025-01-20",
-               vendor: "Dell Technologies",
-               warranty: "2028-01-20"
-           }
-       ],
-   
-       centers: [
-           {
-               id: 1,
-               name: "Englewood Neighborhood Center",
-               address: "6123 La Costa Drive, Orlando, FL",
-               phone: "(407) 555-0142",
-               active: true
-           },
-           {
-               id: 2,
-               name: "Hankins Park",
-               address: "1348 Lake Highland Drive, Orlando, FL",
-               phone: "(407) 555-0187",
-               active: true
-           },
-           {
-               id: 3,
-               name: "Barnett Park",
-               address: "4801 W Colonial Drive, Orlando, FL",
-               phone: "(407) 555-0135",
-               active: true
-           }
-       ],
+       // Filled from the API (GET /v1/inventory, GET /v1/centers) by
+       // loadInventoryData(); never persisted in localStorage.
+       devices: [],
+
+       centers: [],
    
        loans: [
            {
@@ -207,17 +102,130 @@
       ========================================================= */
    
    document.addEventListener("DOMContentLoaded", () => {
-   
+
        console.log("Community Technology Loan Frontend initialized.");
-   
+
        loadSavedSession();
-   
+
+       startApplication();
+   });
+
+
+   async function startApplication() {
+
+       const connected = await connectToServer();
+
+       if (!connected) {
+           return;
+       }
+
        if (state.authenticated) {
            renderApplication();
        } else {
            renderLogin();
        }
-   });
+   }
+
+
+   /* =========================================================
+      SERVER WAKE-UP
+      ---------------------------------------------------------
+      The free Render instance sleeps when idle and can take
+      about a minute to boot. Poll GET /health (no auth) until
+      it answers instead of failing on the first request.
+      ========================================================= */
+
+   const SERVER_WAKE_MAX_WAIT_MS = 150000;
+   const SERVER_WAKE_RETRY_DELAY_MS = 3000;
+   const SERVER_WAKE_REQUEST_TIMEOUT_MS = 15000;
+
+   async function connectToServer() {
+
+       const startedAt = Date.now();
+       let attempt = 0;
+
+       while (true) {
+
+           attempt += 1;
+
+           renderConnecting(attempt, Date.now() - startedAt);
+
+           try {
+               await window.CTLApi.health.check(SERVER_WAKE_REQUEST_TIMEOUT_MS);
+               return true;
+           } catch (error) {
+               console.warn(`Health check attempt ${attempt} failed.`, error);
+           }
+
+           if (Date.now() - startedAt >= SERVER_WAKE_MAX_WAIT_MS) {
+               break;
+           }
+
+           await new Promise(resolve =>
+               setTimeout(resolve, SERVER_WAKE_RETRY_DELAY_MS)
+           );
+       }
+
+       renderConnectionFailed();
+
+       return false;
+   }
+
+
+   function renderConnecting(attempt, elapsedMs) {
+
+       const app = document.getElementById("app");
+
+       if (!app) {
+           return;
+       }
+
+       const seconds = Math.round(elapsedMs / 1000);
+
+       app.innerHTML = `
+           <div class="app-loading" role="status" aria-live="polite">
+               <div class="loading-content">
+                   <div class="loading-brand">Tech Loan</div>
+                   <div class="loading-subtitle">City of Orlando</div>
+                   <div class="loading-spinner" aria-hidden="true"></div>
+                   <p>Connecting to the server…</p>
+                   ${attempt > 1 ? `
+                   <p>
+                       The server is starting up. This can take about a minute.
+                       (attempt ${attempt}, ${seconds}s)
+                   </p>` : ""}
+               </div>
+           </div>
+       `;
+   }
+
+
+   function renderConnectionFailed() {
+
+       const app = document.getElementById("app");
+
+       if (!app) {
+           return;
+       }
+
+       app.innerHTML = `
+           <div class="app-loading" role="alert">
+               <div class="loading-content">
+                   <div class="loading-brand">Tech Loan</div>
+                   <div class="loading-subtitle">City of Orlando</div>
+                   <p>Could not connect to the server.</p>
+                   <p>Please check your connection and try again in a moment.</p>
+                   <button type="button" class="primary-button" id="retry-connection">
+                       Try Again
+                   </button>
+               </div>
+           </div>
+       `;
+
+       document
+           .getElementById("retry-connection")
+           .addEventListener("click", startApplication);
+   }
    
    
    /* =========================================================
@@ -427,10 +435,13 @@
            return;
        }
    
+       // Invalidate any page render still waiting on the API.
+       beginRender();
+
        app.innerHTML = `
-   
+
            <div class="app-container">
-   
+
                ${renderSidebar()}
    
                <main
@@ -689,86 +700,219 @@
    
    
    /* =========================================================
+      API DATA HELPERS
+      ---------------------------------------------------------
+      Devices and centers are always read from the API
+      (GET /v1/inventory, GET /v1/centers). Nothing is stored
+      in localStorage; state.devices / state.centers only keep
+      the last response for the page currently on screen.
+      ========================================================= */
+
+   const DEVICE_TYPE_LABELS = {
+       LAPTOP: "Laptop",
+       TABLET: "Tablet",
+       HOTSPOT: "Hotspot"
+   };
+
+   const DEVICE_STATUS_LABELS = {
+       AVAILABLE: "Available",
+       CHECKED_OUT: "Checked Out",
+       MAINTENANCE: "Maintenance"
+   };
+
+   const DEVICE_STATUS_CLASSES = {
+       AVAILABLE: "available",
+       CHECKED_OUT: "assigned",
+       MAINTENANCE: "maintenance"
+   };
+
+   // Every async page render takes a token; if the user moves to
+   // another page before the API answers, the stale render is dropped.
+   let renderSequence = 0;
+
+   function beginRender() {
+       renderSequence += 1;
+       return renderSequence;
+   }
+
+   function isCurrentRender(token) {
+       return token === renderSequence;
+   }
+
+   // Reads every page of a cursor-paginated list endpoint.
+   async function fetchAllPages(listFn) {
+       const rows = [];
+       let cursor;
+
+       for (let page = 0; page < 50; page += 1) {
+           const response = await listFn({ limit: 100, cursor });
+           rows.push(...responseRows(response));
+           cursor = response?.page?.nextCursor;
+           if (!cursor) break;
+       }
+
+       return rows;
+   }
+
+   function fetchAllCenters() {
+       return fetchAllPages(params => window.CTLApi.centers.list(params));
+   }
+
+   function fetchAllDevices() {
+       return fetchAllPages(params => window.CTLApi.devices.list(params));
+   }
+
+   function toDeviceView(device, centers) {
+       const center = centers.find(item => item.centerId === device.centerId);
+       return {
+           ...device,
+           typeLabel: DEVICE_TYPE_LABELS[device.deviceType] || device.deviceType || "—",
+           statusLabel: DEVICE_STATUS_LABELS[device.status] || device.status || "Unknown",
+           centerName: center ? center.centerName : `Center #${device.centerId}`
+       };
+   }
+
+   async function loadInventoryData() {
+       const [devices, centers] = await Promise.all([
+           fetchAllDevices(),
+           fetchAllCenters()
+       ]);
+       state.centers = centers;
+       state.devices = devices.map(device => toDeviceView(device, centers));
+       return { devices: state.devices, centers };
+   }
+
+   // Best human-readable message from an API error.
+   function apiErrorMessage(error, fallback) {
+       const data = error?.data;
+       if (data && typeof data === "object" && data.error) {
+           const fieldErrors = data.details?.fieldErrors || {};
+           const fieldText = Object.entries(fieldErrors)
+               .map(([field, messages]) => `${field}: ${[].concat(messages).join(", ")}`)
+               .join("; ");
+           const formText = [].concat(data.details?.formErrors || []).join("; ");
+           const extra = [fieldText, formText].filter(Boolean).join("; ");
+           return extra ? `${data.error} (${extra})` : data.error;
+       }
+       return error?.message || fallback;
+   }
+
+   function showLoading(content, title, subtitle, message) {
+       content.innerHTML = `
+           ${pageHeader(title, subtitle)}
+           <section class="content-card">
+               <div class="empty-state">
+                   <p>${escapeHTML(message)}</p>
+               </div>
+           </section>
+       `;
+   }
+
+   function showLoadError(content, title, subtitle, error, retry) {
+       state.retryRender = retry;
+       content.innerHTML = `
+           ${pageHeader(title, subtitle)}
+           <section class="content-card">
+               <div class="empty-state">
+                   <h2>Could not load data from the server</h2>
+                   <p>${escapeHTML(apiErrorMessage(error, "Check that the API is running."))}</p>
+                   <button class="primary-button" data-action="retry-render">Try Again</button>
+               </div>
+           </section>
+       `;
+       setupPageActions();
+   }
+
+   function deviceStatusBadge(status) {
+       const className = DEVICE_STATUS_CLASSES[status] || "info";
+       const label = DEVICE_STATUS_LABELS[status] || status || "Unknown";
+       return `<span class="status ${escapeAttribute(className)}">${escapeHTML(label)}</span>`;
+   }
+
+   function centerStatusBadge(isActive) {
+       return isActive
+           ? `<span class="status active">Active</span>`
+           : `<span class="status inactive">Inactive</span>`;
+   }
+
+
+   /* =========================================================
       DASHBOARD
       ========================================================= */
-   
-   function renderDashboard() {
-   
+
+   async function renderDashboard() {
+
        const content =
            document.getElementById("main-content");
-   
-       const total =
-           state.devices.length;
-   
-       const available =
-           state.devices.filter(
-               d => d.status === "Available"
-           ).length;
-   
-       const assigned =
-           state.devices.filter(
-               d => d.status === "Assigned"
-           ).length;
-   
-       const maintenance =
-           state.devices.filter(
-               d => d.status === "Maintenance"
-           ).length;
-   
+
+       const title = "Dashboard";
+       const subtitle = "Technology inventory overview and recent activity.";
+       const token = beginRender();
+
+       showLoading(content, title, subtitle, "Loading inventory from the server…");
+
+       let devices;
+
+       try {
+           ({ devices } = await loadInventoryData());
+       } catch (error) {
+           if (isCurrentRender(token)) {
+               showLoadError(content, title, subtitle, error, renderDashboard);
+           }
+           return;
+       }
+
+       if (!isCurrentRender(token)) {
+           return;
+       }
+
+       const countByStatus = status =>
+           devices.filter(d => d.status === status).length;
+
+       // Most recently added devices first.
+       const recent = [...devices]
+           .sort((a, b) => b.deviceId - a.deviceId)
+           .slice(0, 5);
+
        content.innerHTML = `
-   
-           ${pageHeader(
-               "Dashboard",
-               "Technology inventory overview and recent activity."
-           )}
-   
+
+           ${pageHeader(title, subtitle)}
+
            <section class="dashboard-cards">
-   
-               ${statCard(
-                   "Total Devices",
-                   total
-               )}
-   
-               ${statCard(
-                   "Available",
-                   available
-               )}
-   
-               ${statCard(
-                   "Assigned",
-                   assigned
-               )}
-   
-               ${statCard(
-                   "Maintenance",
-                   maintenance
-               )}
-   
+
+               ${statCard("Total Devices", devices.length)}
+
+               ${statCard("Available", countByStatus("AVAILABLE"))}
+
+               ${statCard("Checked Out", countByStatus("CHECKED_OUT"))}
+
+               ${statCard("Maintenance", countByStatus("MAINTENANCE"))}
+
            </section>
-   
+
            <section class="content-card">
-   
+
                <div class="card-header">
-   
+
                    <h2>
                        Recent Device Activity
                    </h2>
-   
+
                    <button
                        class="text-button"
                        data-action="inventory"
                    >
                        View All →
                    </button>
-   
+
                </div>
-   
+
                <div class="table-container">
-   
+
                    <table>
-   
+
                        <thead>
-   
+
                            <tr>
                                <th>Asset Tag</th>
                                <th>Type</th>
@@ -776,238 +920,251 @@
                                <th>Status</th>
                                <th>Center</th>
                            </tr>
-   
+
                        </thead>
-   
+
                        <tbody>
-   
-                           ${state.devices
-                               .slice(0, 5)
-                               .map(deviceRow)
-                               .join("")}
-   
+
+                           ${recent.map(deviceRow).join("") ||
+                               `<tr><td colspan="5">No devices returned by the API.</td></tr>`}
+
                        </tbody>
-   
+
                    </table>
-   
+
                </div>
-   
+
            </section>
-   
+
            <section class="content-card">
-   
+
                <div class="card-header">
-   
+
                    <h2>
                        Quick Actions
                    </h2>
-   
+
                </div>
-   
+
                <div class="quick-actions">
-   
+
                    <button
                        type="button"
                        data-action="inventory"
                    >
                        View Device Inventory
                    </button>
-   
+
                    <button
                        type="button"
                        data-action="add-device"
                    >
                        Add New Device
                    </button>
-   
+
                    <button
                        type="button"
                        data-action="centers"
                    >
                        Outreach Centers
                    </button>
-   
+
                    <button
                        type="button"
                        data-action="loans"
                    >
                        Manage Loans
                    </button>
-   
+
                </div>
-   
+
            </section>
        `;
-   
+
        setupPageActions();
    }
-   
-   
+
+
    /* =========================================================
       STAT CARD
       ========================================================= */
-   
+
    function statCard(label, value) {
-   
+
        return `
            <div class="dashboard-card">
-   
+
                <span>
                    ${escapeHTML(label)}
                </span>
-   
+
                <strong>
-                   ${value}
+                   ${escapeHTML(value)}
                </strong>
-   
+
            </div>
        `;
    }
-   
-   
+
+
    /* =========================================================
       DEVICE INVENTORY
       ========================================================= */
-   
-   function renderInventory() {
-   
+
+   async function renderInventory() {
+
        const content =
            document.getElementById("main-content");
-   
+
+       const title = "Device Inventory";
+       const subtitle = "Search, filter, and manage technology assets.";
+       const token = beginRender();
+
+       showLoading(content, title, subtitle, "Loading devices from the server…");
+
+       let devices;
+       let centers;
+
+       try {
+           ({ devices, centers } = await loadInventoryData());
+       } catch (error) {
+           if (isCurrentRender(token)) {
+               showLoadError(content, title, subtitle, error, renderInventory);
+           }
+           return;
+       }
+
+       if (!isCurrentRender(token)) {
+           return;
+       }
+
        content.innerHTML = `
-   
-           ${pageHeader(
-               "Device Inventory",
-               "Search, filter, and manage technology assets."
-           )}
+
+           ${pageHeader(title, subtitle)}
 
            <section class="content-card">
-   
+
                <div class="inventory-toolbar">
-   
+
                    <div class="search-wrapper">
-   
+
                        <label for="device-search">
                            Search devices
                        </label>
-   
+
                        <input
                            type="search"
                            id="device-search"
                            placeholder="Search asset tag, model, serial number..."
                        >
-   
+
                    </div>
-   
+
                    <div>
-   
+
                        <label for="type-filter">
                            Device Type
                        </label>
-   
+
                        <select id="type-filter">
-   
+
                            <option value="">
                                All Types
                            </option>
-   
-                           <option value="Laptop">
-                               Laptop
-                           </option>
-   
-                           <option value="Tablet">
-                               Tablet
-                           </option>
-   
-                           <option value="Desktop">
-                               Desktop
-                           </option>
-   
-                           <option value="Monitor">
-                               Monitor
-                           </option>
-   
+
+                           ${Object.entries(DEVICE_TYPE_LABELS)
+                               .map(([value, label]) => `<option value="${value}">${label}</option>`)
+                               .join("")}
+
                        </select>
-   
+
                    </div>
-   
+
                    <div>
-   
+
                        <label for="status-filter">
                            Status
                        </label>
-   
+
                        <select id="status-filter">
-   
+
                            <option value="">
                                All Statuses
                            </option>
-   
-                           <option value="Available">
-                               Available
-                           </option>
-   
-                           <option value="Assigned">
-                               Assigned
-                           </option>
-   
-                           <option value="Maintenance">
-                               Maintenance
-                           </option>
-   
-                           <option value="Retired">
-                               Retired
-                           </option>
-   
+
+                           ${Object.entries(DEVICE_STATUS_LABELS)
+                               .map(([value, label]) => `<option value="${value}">${label}</option>`)
+                               .join("")}
+
                        </select>
-   
+
                    </div>
-   
+
+                   <div>
+
+                       <label for="center-filter">
+                           Outreach Center
+                       </label>
+
+                       <select id="center-filter">
+
+                           <option value="">
+                               All Centers
+                           </option>
+
+                           ${centers
+                               .map(center => `<option value="${center.centerId}">${escapeHTML(center.centerName)}</option>`)
+                               .join("")}
+
+                       </select>
+
+                   </div>
+
                    <div class="toolbar-actions">
-   
+
                        <button
                            class="secondary-button"
                            id="clear-filters"
                        >
                            Clear Filters
                        </button>
-   
+
                        <button
                            class="primary-button"
                            data-action="add-device"
                        >
                            + Add Device
                        </button>
-   
+
                    </div>
-   
+
                </div>
-   
+
            </section>
-   
+
            <section class="content-card">
-   
+
                <div class="card-header">
-   
+
                    <h2>
                        Devices
                    </h2>
-   
+
                    <span
                        id="inventory-count"
                        class="record-count"
                    >
-                       ${state.devices.length} records
+                       ${devices.length} records
                    </span>
-   
+
                </div>
-   
+
                <div class="table-container">
-   
+
                    <table id="inventory-table">
-   
+
                        <thead>
-   
+
                            <tr>
                                <th>Asset ID</th>
                                <th>Device Type</th>
@@ -1018,353 +1175,356 @@
                                <th>Outreach Center</th>
                                <th>Actions</th>
                            </tr>
-   
+
                        </thead>
-   
+
                        <tbody id="inventory-body">
-   
-                           ${state.devices
-                               .map(inventoryRow)
-                               .join("")}
-   
+
+                           ${devices.map(inventoryRow).join("") || emptyInventoryRow()}
+
                        </tbody>
-   
+
                    </table>
-   
+
                </div>
-   
+
            </section>
        `;
-   
+
        setupPageActions();
-       setupInventoryFilters();
+       setupInventoryFilters(devices);
    }
-   
-   
-   function inventoryRow(device) {
-   
+
+
+   function emptyInventoryRow() {
+
        return `
            <tr>
-   
+               <td colspan="8">
+                   <div class="empty-state">
+                       <strong>
+                           No devices found
+                       </strong>
+                       <p>
+                           Try changing your search or filters.
+                       </p>
+                   </div>
+               </td>
+           </tr>
+       `;
+   }
+
+
+   function inventoryRow(device) {
+
+       return `
+           <tr>
+
                <td>
                    <button
                        class="table-link"
                        data-action="device-details"
-                       data-id="${device.id}"
+                       data-id="${device.deviceId}"
                    >
                        ${escapeHTML(device.assetTag)}
                    </button>
                </td>
-   
+
                <td>
-                   ${escapeHTML(device.type)}
+                   ${escapeHTML(device.typeLabel)}
                </td>
-   
+
                <td>
                    ${escapeHTML(device.manufacturer)}
                </td>
-   
+
                <td>
                    ${escapeHTML(device.model)}
                </td>
-   
+
                <td>
                    ${escapeHTML(device.serialNumber)}
                </td>
-   
+
                <td>
-                   ${statusBadge(device.status)}
+                   ${deviceStatusBadge(device.status)}
                </td>
-   
+
                <td>
-                   ${escapeHTML(device.center)}
+                   ${escapeHTML(device.centerName)}
                </td>
-   
+
                <td>
-   
+
                    <button
                        class="small-button"
                        data-action="device-details"
-                       data-id="${device.id}"
+                       data-id="${device.deviceId}"
                    >
                        View
                    </button>
-   
+
                    <button
                        class="small-button"
                        data-action="edit-device"
-                       data-id="${device.id}"
+                       data-id="${device.deviceId}"
                    >
                        Edit
                    </button>
-   
+
                </td>
-   
+
            </tr>
        `;
    }
-   
-   
-   function setupInventoryFilters() {
-   
+
+
+   function setupInventoryFilters(devices) {
+
        const search =
            document.getElementById("device-search");
-   
+
        const type =
            document.getElementById("type-filter");
-   
+
        const status =
            document.getElementById("status-filter");
-   
+
+       const center =
+           document.getElementById("center-filter");
+
        const clear =
            document.getElementById("clear-filters");
-   
+
        function filterDevices() {
-   
+
            const searchValue =
                search.value.toLowerCase().trim();
-   
-           const typeValue =
-               type.value;
-   
-           const statusValue =
-               status.value;
-   
+
            const filtered =
-               state.devices.filter(device => {
-   
+               devices.filter(device => {
+
                    const matchesSearch =
                        !searchValue ||
-                       device.assetTag.toLowerCase().includes(searchValue) ||
-                       device.serialNumber.toLowerCase().includes(searchValue) ||
-                       device.model.toLowerCase().includes(searchValue) ||
-                       device.manufacturer.toLowerCase().includes(searchValue);
-   
+                       [device.assetTag, device.serialNumber, device.model, device.manufacturer]
+                           .some(value => String(value || "").toLowerCase().includes(searchValue));
+
                    const matchesType =
-                       !typeValue ||
-                       device.type === typeValue;
-   
+                       !type.value ||
+                       device.deviceType === type.value;
+
                    const matchesStatus =
-                       !statusValue ||
-                       device.status === statusValue;
-   
+                       !status.value ||
+                       device.status === status.value;
+
+                   const matchesCenter =
+                       !center.value ||
+                       String(device.centerId) === center.value;
+
                    return (
                        matchesSearch &&
                        matchesType &&
-                       matchesStatus
+                       matchesStatus &&
+                       matchesCenter
                    );
                });
-   
+
            document.getElementById(
                "inventory-body"
            ).innerHTML =
                filtered.length
                    ? filtered.map(inventoryRow).join("")
-                   : `
-                       <tr>
-                           <td colspan="8">
-                               <div class="empty-state">
-                                   <strong>
-                                       No devices found
-                                   </strong>
-                                   <p>
-                                       Try changing your search or filters.
-                                   </p>
-                               </div>
-                           </td>
-                       </tr>
-                   `;
-   
+                   : emptyInventoryRow();
+
            document.getElementById(
                "inventory-count"
            ).textContent =
                `${filtered.length} records`;
-   
-           setupPageActions();
+
+           setupPageActions(
+               document.getElementById("inventory-body")
+           );
        }
-   
-       search.addEventListener(
-           "input",
-           filterDevices
-       );
-   
-       type.addEventListener(
-           "change",
-           filterDevices
-       );
-   
-       status.addEventListener(
-           "change",
-           filterDevices
-       );
-   
+
+       search.addEventListener("input", filterDevices);
+       type.addEventListener("change", filterDevices);
+       status.addEventListener("change", filterDevices);
+       center.addEventListener("change", filterDevices);
+
        clear.addEventListener(
            "click",
            () => {
-   
+
                search.value = "";
                type.value = "";
                status.value = "";
-   
+               center.value = "";
+
                filterDevices();
            }
        );
    }
-   
-   
+
+
    /* =========================================================
       DEVICE DETAILS
       ========================================================= */
-   
-   function renderDeviceDetails(id) {
-   
-       const device =
-           state.devices.find(
-               d => d.id === Number(id)
-           );
-   
+
+   async function loadDeviceWithCenters(id) {
+
+       const [deviceResponse, centers] = await Promise.all([
+           window.CTLApi.devices.get(id),
+           fetchAllCenters()
+       ]);
+
+       const device = deviceResponse?.data;
+
        if (!device) {
-   
-           showToast(
-               "Device not found.",
-               "error"
-           );
-   
-           return;
+           throw new Error("Device not found.");
        }
-   
+
+       state.centers = centers;
+
+       return { device: toDeviceView(device, centers), centers };
+   }
+
+
+   async function renderDeviceDetails(id) {
+
        const content =
            document.getElementById("main-content");
-   
+
+       const title = "Device Details";
+       const token = beginRender();
+
+       showLoading(content, title, "", "Loading device from the server…");
+
+       let device;
+
+       try {
+           ({ device } = await loadDeviceWithCenters(id));
+       } catch (error) {
+           if (isCurrentRender(token)) {
+               showLoadError(content, title, "", error, () => renderDeviceDetails(id));
+           }
+           return;
+       }
+
+       if (!isCurrentRender(token)) {
+           return;
+       }
+
        content.innerHTML = `
-   
+
            ${pageHeader(
-               "Device Details",
+               title,
                `Asset ${device.assetTag}`
            )}
-   
+
            <section class="content-card">
-   
+
                <div class="card-header">
-   
+
                    <h2>
-                       ${escapeHTML(device.model)}
+                       ${escapeHTML(`${device.manufacturer} ${device.model}`)}
                    </h2>
-   
+
                    <div class="button-group">
-   
+
                        <button
                            class="secondary-button"
                            data-action="inventory"
                        >
                            ← Back to Inventory
                        </button>
-   
+
                        <button
                            class="primary-button"
                            data-action="edit-device"
-                           data-id="${device.id}"
+                           data-id="${device.deviceId}"
                        >
                            Edit Device
                        </button>
-   
+
                    </div>
-   
+
                </div>
-   
+
                <div class="details-grid">
-   
-                   ${detailItem(
-                       "Asset Tag",
-                       device.assetTag
-                   )}
-   
-                   ${detailItem(
-                       "Serial Number",
-                       device.serialNumber
-                   )}
-   
-                   ${detailItem(
-                       "Device Type",
-                       device.type
-                   )}
-   
-                   ${detailItem(
-                       "Manufacturer",
-                       device.manufacturer
-                   )}
-   
-                   ${detailItem(
-                       "Model",
-                       device.model
-                   )}
-   
-                   ${detailItem(
-                       "Status",
-                       statusBadge(device.status)
-                   )}
-   
-                   ${detailItem(
-                       "Outreach Center",
-                       device.center
-                   )}
-   
-                   ${detailItem(
-                       "Assigned User / Department",
-                       device.assignedTo || "Not assigned"
-                   )}
-   
-                   ${detailItem(
-                       "Purchase Date",
-                       device.purchaseDate
-                   )}
-   
-                   ${detailItem(
-                       "Vendor",
-                       device.vendor
-                   )}
-   
-                   ${detailItem(
-                       "Warranty",
-                       device.warranty
-                   )}
-   
+
+                   ${detailItem("Asset Tag", escapeHTML(device.assetTag))}
+
+                   ${detailItem("Serial Number", escapeHTML(device.serialNumber))}
+
+                   ${detailItem("Device Type", escapeHTML(device.typeLabel))}
+
+                   ${detailItem("Manufacturer", escapeHTML(device.manufacturer))}
+
+                   ${detailItem("Model", escapeHTML(device.model))}
+
+                   ${detailItem("Status", deviceStatusBadge(device.status))}
+
+                   ${detailItem("Outreach Center", escapeHTML(device.centerName))}
+
+                   ${detailItem("Device ID", escapeHTML(device.deviceId))}
+
                </div>
-   
+
            </section>
        `;
-   
+
        setupPageActions();
    }
-   
-   
+
+
    /* =========================================================
       ADD DEVICE
       ========================================================= */
-   
-   function renderAddDevice() {
-   
+
+   async function renderAddDevice() {
+
        const content =
            document.getElementById("main-content");
-   
+
+       const title = "Add New Device";
+       const subtitle = "Create a new technology inventory record.";
+       const token = beginRender();
+
+       showLoading(content, title, subtitle, "Loading outreach centers from the server…");
+
+       let centers;
+
+       try {
+           centers = await fetchAllCenters();
+       } catch (error) {
+           if (isCurrentRender(token)) {
+               showLoadError(content, title, subtitle, error, renderAddDevice);
+           }
+           return;
+       }
+
+       if (!isCurrentRender(token)) {
+           return;
+       }
+
+       state.centers = centers;
+
        content.innerHTML = `
-   
-           ${pageHeader(
-               "Add New Device",
-               "Create a new technology inventory record."
-           )}
-   
+
+           ${pageHeader(title, subtitle)}
+
            <section class="content-card">
-   
+
+               ${centers.length ? `
                <form
                    id="device-form"
                    class="device-form"
                >
-   
-                   ${deviceFormFields()}
-   
+
+                   ${deviceFormFields({}, centers, false)}
+
                    <div class="form-actions">
-   
+
                        <button
                            type="button"
                            class="secondary-button"
@@ -1372,219 +1532,151 @@
                        >
                            Cancel
                        </button>
-   
+
                        <button
                            type="submit"
                            class="primary-button"
                        >
                            Save Device
                        </button>
-   
+
                    </div>
-   
+
                </form>
-   
+               ` : `
+               <div class="empty-state">
+                   <p>No outreach centers exist yet. Create a center before adding devices.</p>
+               </div>
+               `}
+
            </section>
        `;
-   
-       setupDeviceForm();
+
+       setupDeviceForm(null);
        setupPageActions();
    }
-   
-   
-   function deviceFormFields(device = {}) {
-   
+
+
+   function deviceFormFields(device, centers, isEdit) {
+
        return `
-   
+
            <div class="form-grid">
-   
+
                ${formInput(
                    "Asset Tag",
                    "assetTag",
                    device.assetTag || "",
                    true
                )}
-   
+
                ${formInput(
                    "Serial Number",
                    "serialNumber",
                    device.serialNumber || "",
                    true
                )}
-   
+
                <div class="form-group">
-   
+
                    <label for="device-type">
                        Device Type
                    </label>
-   
+
                    <select
                        id="device-type"
-                       name="type"
+                       name="deviceType"
                        required
                    >
-   
+
                        <option value="">
                            Select type
                        </option>
-   
-                       ${selectOption(
-                           "Laptop",
-                           device.type
-                       )}
-   
-                       ${selectOption(
-                           "Tablet",
-                           device.type
-                       )}
 
-                       ${selectOption(
-                           "Hotspot",
-                           device.type
-                       )}
-   
-                       ${selectOption(
-                           "Desktop",
-                           device.type
-                       )}
-   
-                       ${selectOption(
-                           "Monitor",
-                           device.type
-                       )}
-   
+                       ${Object.entries(DEVICE_TYPE_LABELS)
+                           .map(([value, label]) => labeledOption(value, label, device.deviceType))
+                           .join("")}
+
                    </select>
-   
+
                </div>
-   
+
                ${formInput(
                    "Manufacturer",
                    "manufacturer",
                    device.manufacturer || "",
                    true
                )}
-   
+
                ${formInput(
                    "Model",
                    "model",
                    device.model || "",
                    true
                )}
-   
+
                <div class="form-group">
-   
+
                    <label for="device-status">
                        Status
                    </label>
-   
+
+                   ${isEdit ? `
+                   <p id="device-status">
+                       ${deviceStatusBadge(device.status)}
+                   </p>
+                   <small>Status changes through Loans and Maintenance.</small>
+                   ` : `
                    <select
                        id="device-status"
                        name="status"
                        required
                    >
-   
-                       ${selectOption(
-                           "Available",
-                           device.status || "Available"
-                       )}
-   
-                       ${selectOption(
-                           "Assigned",
-                           device.status
-                       )}
-   
-                       ${selectOption(
-                           "Maintenance",
-                           device.status
-                       )}
-   
-                       ${selectOption(
-                           "Retired",
-                           device.status
-                       )}
-   
+
+                       ${Object.entries(DEVICE_STATUS_LABELS)
+                           .map(([value, label]) => labeledOption(value, label, "AVAILABLE"))
+                           .join("")}
+
                    </select>
-   
+                   `}
+
                </div>
-   
+
                <div class="form-group">
-   
+
                    <label for="device-center">
                        Outreach Center
                    </label>
-   
+
                    <select
                        id="device-center"
-                       name="center"
+                       name="centerId"
                        required
                    >
-   
+
                        <option value="">
                            Select center
                        </option>
-   
-                       ${state.centers
-                           .map(center =>
-                               selectOption(
-                                   center.name
-                                       .replace(
-                                           " Neighborhood Center",
-                                           ""
-                                       ),
-                                   device.center
-                               )
-                           )
+
+                       ${centers
+                           .map(center => labeledOption(
+                               String(center.centerId),
+                               center.isActive
+                                   ? center.centerName
+                                   : `${center.centerName} (inactive)`,
+                               device.centerId != null ? String(device.centerId) : ""
+                           ))
                            .join("")}
-   
-                       <option value="Englewood">
-                           Englewood
-                       </option>
-   
-                       <option value="Hankins">
-                           Hankins
-                       </option>
-   
-                       <option value="Barnett">
-                           Barnett
-                       </option>
-   
+
                    </select>
-   
+
                </div>
-   
-               ${formInput(
-                   "Assigned User / Department",
-                   "assignedTo",
-                   device.assignedTo || ""
-               )}
-   
-               ${formInput(
-                   "Purchase Date",
-                   "purchaseDate",
-                   device.purchaseDate || "",
-                   false,
-                   "date"
-               )}
-   
-               ${formInput(
-                   "Vendor",
-                   "vendor",
-                   device.vendor || ""
-               )}
-   
-               ${formInput(
-                   "Warranty Expiration",
-                   "warranty",
-                   device.warranty || "",
-                   false,
-                   "date"
-               )}
-   
+
            </div>
        `;
    }
-   
-   
+
+
    function formInput(
        label,
        name,
@@ -1592,15 +1684,15 @@
        required = false,
        type = "text"
    ) {
-   
+
        return `
            <div class="form-group">
-   
+
                <label for="${name}">
                    ${escapeHTML(label)}
                    ${required ? "<span>*</span>" : ""}
                </label>
-   
+
                <input
                    id="${name}"
                    name="${name}"
@@ -1608,245 +1700,117 @@
                    value="${escapeAttribute(value)}"
                    ${required ? "required" : ""}
                >
-   
+
            </div>
        `;
    }
-   
-   
-   function selectOption(value, selectedValue) {
-   
+
+
+   function labeledOption(value, label, selectedValue) {
+
        const selected =
            value === selectedValue
                ? "selected"
                : "";
-   
+
        return `
            <option
                value="${escapeAttribute(value)}"
                ${selected}
            >
-               ${escapeHTML(value)}
+               ${escapeHTML(label)}
            </option>
        `;
    }
-   
-   
-   function setupDeviceForm(editId = null) {
-   
+
+
+   // existingDevice === null  -> create (POST /v1/inventory)
+   // existingDevice provided  -> edit   (PATCH /v1/inventory/:deviceId,
+   //                                     only changed fields, never "status")
+   function setupDeviceForm(existingDevice) {
+
        const form =
            document.getElementById("device-form");
-   
+
        if (!form) {
            return;
        }
-   
-           form.addEventListener(
-               "submit",
-               async event => {
-   
+
+       form.addEventListener(
+           "submit",
+           async event => {
+
                event.preventDefault();
-   
+
                const formData =
                    new FormData(form);
-   
-               const data =
-                   Object.fromEntries(formData.entries());
 
-               ["assetTag", "serialNumber", "manufacturer", "model"]
-                   .forEach(field => {
-                       data[field] = String(data[field] || "").trim();
-                   });
-   
-               const duplicateAsset =
-                   state.devices.some(
-                       device =>
-                           device.assetTag.toLowerCase() ===
-                           data.assetTag.toLowerCase() &&
-                           device.id !== Number(editId)
-                   );
-   
-               if (duplicateAsset) {
-   
-                   showToast(
-                       "Asset Tag already exists.",
-                       "error"
-                   );
-   
+               const fields = {
+                   assetTag: String(formData.get("assetTag") || "").trim(),
+                   serialNumber: String(formData.get("serialNumber") || "").trim(),
+                   deviceType: String(formData.get("deviceType") || ""),
+                   manufacturer: String(formData.get("manufacturer") || "").trim(),
+                   model: String(formData.get("model") || "").trim(),
+                   centerId: Number(formData.get("centerId"))
+               };
+
+               if (!Number.isInteger(fields.centerId) || fields.centerId < 1) {
+                   showToast("Select an outreach center.", "error");
                    return;
                }
-   
-               const duplicateSerial =
-                   state.devices.some(
-                       device =>
-                           device.serialNumber.toLowerCase() ===
-                           data.serialNumber.toLowerCase() &&
-                           device.id !== Number(editId)
+
+               let payload = fields;
+
+               if (existingDevice) {
+
+                   payload = Object.fromEntries(
+                       Object.entries(fields).filter(
+                           ([key, value]) => value !== existingDevice[key]
+                       )
                    );
-   
-               if (duplicateSerial) {
-   
-                   showToast(
-                       "Serial Number already exists.",
-                       "error"
-                   );
-   
-                   return;
-               }
-   
-               if (editId) {
-   
-                   const device =
-                       state.devices.find(
-                           d => d.id === Number(editId)
-                       );
-   
-                   if (device) {
-   
-                       Object.assign(
-                           device,
-                           data
-                       );
-   
-                       saveDevices();
-   
-                       showToast(
-                           "Device updated successfully.",
-                           "success"
-                       );
-   
-                       setTimeout(
-                           () =>
-                               renderDeviceDetails(editId),
-                           500
-                       );
+
+                   if (!Object.keys(payload).length) {
+                       showToast("No changes to save.", "info");
+                       return;
                    }
-   
+
                } else {
-   
-                   const submitButton =
-                       form.querySelector('button[type="submit"]');
 
-                   const originalButtonText =
-                       submitButton ? submitButton.textContent : "Save Device";
-
-                   if (submitButton) {
-                       submitButton.disabled = true;
-                       submitButton.textContent = "Saving...";
-                   }
-
-                   const typeToApi = {
-                       Laptop: "LAPTOP",
-                       Tablet: "TABLET",
-                       Hotspot: "HOTSPOT"
+                   payload = {
+                       ...fields,
+                       status: String(formData.get("status") || "AVAILABLE")
                    };
+               }
 
-                   const statusToApi = {
-                       Available: "AVAILABLE",
-                       Assigned: "CHECKED_OUT",
-                       Maintenance: "MAINTENANCE"
-                   };
+               const submitButton =
+                   form.querySelector('button[type="submit"]');
 
-                   const apiDeviceType = typeToApi[data.type];
-                   const apiStatus = statusToApi[data.status];
-                   const isApiCompatible = Boolean(apiDeviceType && apiStatus);
+               const originalButtonText =
+                   submitButton ? submitButton.textContent : "Save";
 
-                   try {
-                       let createdRecord = null;
+               if (submitButton) {
+                   submitButton.disabled = true;
+                   submitButton.textContent = "Saving...";
+               }
 
-                       if (isApiCompatible) {
-                           if (
-                               !window.CTLApi ||
-                               !window.CTLApi.devices ||
-                               typeof window.CTLApi.devices.create !== "function"
-                           ) {
-                               throw new Error("The inventory API client is unavailable.");
-                           }
+               try {
 
-                           if (
-                               !window.CTLApi.centers ||
-                               typeof window.CTLApi.centers.list !== "function"
-                           ) {
-                               throw new Error("The outreach center API is unavailable.");
-                           }
+                   if (existingDevice) {
 
-                           const centersResponse =
-                               await window.CTLApi.centers.list();
+                       await window.CTLApi.devices.update(
+                           existingDevice.deviceId,
+                           payload
+                       );
 
-                           const apiCenters =
-                               Array.isArray(centersResponse?.data)
-                                   ? centersResponse.data
-                                   : Array.isArray(centersResponse)
-                                       ? centersResponse
-                                       : [];
+                       await renderDeviceDetails(existingDevice.deviceId);
 
-                           const normalizeCenterName = name =>
-                               String(name || "")
-                                   .toLowerCase()
-                                   .replace(/neighborhood center|park/g, "")
-                                   .replace(/[^a-z0-9]+/g, " ")
-                                   .trim();
+                       showToast("Device updated successfully.", "success");
 
-                           const selectedCenterName =
-                               normalizeCenterName(data.center);
+                   } else {
 
-                           const apiCenter =
-                               apiCenters.find(center =>
-                                   normalizeCenterName(
-                                       center.centerName || center.name
-                                   ) === selectedCenterName
-                               );
+                       await window.CTLApi.devices.create(payload);
 
-                           // The API's center payload uses `centerId`; accept
-                           // `id` as well for compatibility with older data.
-                           const centerId = Number(
-                               apiCenter?.centerId ?? apiCenter?.id
-                           );
-
-                           if (!Number.isInteger(centerId) || centerId < 1) {
-                               throw new Error(
-                                   `Could not match “${data.center}” to an outreach center in the server.`
-                               );
-                           }
-
-                           const apiResponse =
-                               await window.CTLApi.devices.create({
-                                   assetTag: data.assetTag.trim(),
-                                   serialNumber: data.serialNumber.trim(),
-                                   deviceType: apiDeviceType,
-                                   manufacturer: data.manufacturer.trim(),
-                                   model: data.model.trim(),
-                                   status: apiStatus,
-                                   centerId
-                               });
-
-                           createdRecord =
-                               apiResponse?.data?.device ||
-                               apiResponse?.data ||
-                               apiResponse?.device ||
-                               apiResponse;
-                       }
-
-                       const newDevice = {
-                           id: createdRecord?.id ?? Date.now(),
-                           assetTag: createdRecord?.assetTag || data.assetTag,
-                           serialNumber: createdRecord?.serialNumber || data.serialNumber,
-                           type: data.type,
-                           manufacturer: data.manufacturer,
-                           model: data.model,
-                           status: data.status,
-                           center: data.center,
-                           assignedTo: data.assignedTo || "",
-                           purchaseDate: data.purchaseDate || "",
-                           vendor: data.vendor || "",
-                           warranty: data.warranty || ""
-                       };
-
-                       state.devices.push(newDevice);
-   
-                       saveDevices();
-
-                       renderInventory();
+                       await renderInventory();
 
                        window.scrollTo({
                            top: 0,
@@ -1854,284 +1818,304 @@
                        });
 
                        showToast(
-                           isApiCompatible
-                               ? "Device added successfully. It now appears in the inventory."
-                               : "Device saved in this browser only. The API does not support this device type or status yet.",
-                           isApiCompatible ? "success" : "info"
+                           "Device added successfully. It now appears in the inventory.",
+                           "success"
                        );
-                   } catch (error) {
-                       console.error("Unable to save device to the API.", error);
-                       showToast(
-                           `Device was not saved to the server. ${error.message}`,
-                           "error"
-                       );
-                   } finally {
-                       if (submitButton && submitButton.isConnected) {
-                           submitButton.disabled = false;
-                           submitButton.textContent = originalButtonText;
-                       }
+                   }
+
+               } catch (error) {
+
+                   console.error("Unable to save device to the API.", error);
+
+                   showToast(
+                       `Device was not saved to the server. ${apiErrorMessage(error, "")}`,
+                       "error"
+                   );
+
+               } finally {
+
+                   if (submitButton && submitButton.isConnected) {
+                       submitButton.disabled = false;
+                       submitButton.textContent = originalButtonText;
                    }
                }
            }
        );
    }
-   
-   
+
+
    /* =========================================================
       EDIT DEVICE
       ========================================================= */
-   
-   function renderEditDevice(id) {
-   
-       const device =
-           state.devices.find(
-               d => d.id === Number(id)
-           );
-   
-       if (!device) {
-           showToast(
-               "Device not found.",
-               "error"
-           );
-           return;
-       }
-   
+
+   async function renderEditDevice(id) {
+
        const content =
            document.getElementById("main-content");
-   
+
+       const title = "Edit Device";
+       const token = beginRender();
+
+       showLoading(content, title, "", "Loading device from the server…");
+
+       let device;
+       let centers;
+
+       try {
+           ({ device, centers } = await loadDeviceWithCenters(id));
+       } catch (error) {
+           if (isCurrentRender(token)) {
+               showLoadError(content, title, "", error, () => renderEditDevice(id));
+           }
+           return;
+       }
+
+       if (!isCurrentRender(token)) {
+           return;
+       }
+
        content.innerHTML = `
-   
+
            ${pageHeader(
-               "Edit Device",
+               title,
                `Update ${device.assetTag}`
            )}
-   
+
            <section class="content-card">
-   
+
                <form
                    id="device-form"
                    class="device-form"
                >
-   
-                   ${deviceFormFields(device)}
-   
+
+                   ${deviceFormFields(device, centers, true)}
+
                    <div class="form-actions">
-   
+
                        <button
                            type="button"
                            class="secondary-button"
                            data-action="device-details"
-                           data-id="${device.id}"
+                           data-id="${device.deviceId}"
                        >
                            Cancel
                        </button>
-   
+
                        <button
                            type="submit"
                            class="primary-button"
                        >
                            Save Changes
                        </button>
-   
+
                    </div>
-   
+
                </form>
-   
+
            </section>
        `;
-   
-       setupDeviceForm(id);
+
+       setupDeviceForm(device);
        setupPageActions();
    }
-   
-   
+
+
    /* =========================================================
       OUTREACH CENTERS
       ========================================================= */
-   
-   function renderCenters() {
-   
+
+   async function renderCenters() {
+
        const content =
            document.getElementById("main-content");
-   
+
+       const title = "Outreach Centers";
+       const subtitle = "Community locations participating in the technology loan program.";
+       const token = beginRender();
+
+       showLoading(content, title, subtitle, "Loading outreach centers from the server…");
+
+       let devices;
+       let centers;
+
+       try {
+           ({ devices, centers } = await loadInventoryData());
+       } catch (error) {
+           if (isCurrentRender(token)) {
+               showLoadError(content, title, subtitle, error, renderCenters);
+           }
+           return;
+       }
+
+       if (!isCurrentRender(token)) {
+           return;
+       }
+
        content.innerHTML = `
-   
-           ${pageHeader(
-               "Outreach Centers",
-               "Community locations participating in the technology loan program."
-           )}
-   
+
+           ${pageHeader(title, subtitle)}
+
            <section class="center-grid">
-   
-               ${state.centers
+
+               ${centers
                    .map(center => {
-   
+
                        const deviceCount =
-                           state.devices.filter(
-                               d =>
-                                   d.center ===
-                                   center.name.replace(
-                                       " Neighborhood Center",
-                                       ""
-                                   )
+                           devices.filter(
+                               d => d.centerId === center.centerId
                            ).length;
-   
+
                        return `
-   
+
                            <div class="center-card">
-   
+
                                <div class="center-card-header">
-   
+
                                    <h2>
-                                       ${escapeHTML(center.name)}
+                                       ${escapeHTML(center.centerName)}
                                    </h2>
-   
-                                   <span class="status available">
-                                       ${
-                                           center.active
-                                               ? "Active"
-                                               : "Inactive"
-                                       }
-                                   </span>
-   
+
+                                   ${centerStatusBadge(center.isActive)}
+
                                </div>
-   
+
                                <p>
                                    ${escapeHTML(center.address)}
                                </p>
-   
+
                                <p>
                                    ${escapeHTML(center.phone)}
                                </p>
-   
+
                                <div class="center-stat">
-   
+
                                    <strong>
                                        ${deviceCount}
                                    </strong>
-   
+
                                    <span>
                                        Devices
                                    </span>
-   
+
                                </div>
-   
+
                                <button
                                    class="secondary-button"
                                    data-action="center-details"
-                                   data-id="${center.id}"
+                                   data-id="${center.centerId}"
                                >
                                    View Center
                                </button>
-   
+
                            </div>
                        `;
                    })
-                   .join("")}
-   
+                   .join("") || `<div class="content-card"><p>No outreach centers returned by the API.</p></div>`}
+
            </section>
        `;
-   
+
        setupPageActions();
    }
-   
-   
-   function renderCenterDetails(id) {
-   
-       const center =
-           state.centers.find(
-               c => c.id === Number(id)
-           );
-   
-       if (!center) {
-           showToast(
-               "Center not found.",
-               "error"
-           );
-           return;
-       }
-   
-       const centerName =
-           center.name.replace(
-               " Neighborhood Center",
-               ""
-           );
-   
-       const devices =
-           state.devices.filter(
-               device =>
-                   device.center === centerName
-           );
-   
+
+
+   async function renderCenterDetails(id) {
+
        const content =
            document.getElementById("main-content");
-   
+
+       const title = "Outreach Center";
+       const token = beginRender();
+
+       showLoading(content, title, "", "Loading outreach center from the server…");
+
+       let devices;
+       let centers;
+
+       try {
+           ({ devices, centers } = await loadInventoryData());
+       } catch (error) {
+           if (isCurrentRender(token)) {
+               showLoadError(content, title, "", error, () => renderCenterDetails(id));
+           }
+           return;
+       }
+
+       if (!isCurrentRender(token)) {
+           return;
+       }
+
+       const center =
+           centers.find(
+               c => String(c.centerId) === String(id)
+           );
+
+       if (!center) {
+           showLoadError(content, title, "", new Error("Center not found."), renderCenters);
+           return;
+       }
+
+       const centerDevices =
+           devices.filter(
+               device => device.centerId === center.centerId
+           );
+
        content.innerHTML = `
-   
+
            ${pageHeader(
-               center.name,
+               center.centerName,
                "Outreach center information and assigned devices."
            )}
-   
+
            <section class="content-card">
-   
+
                <div class="card-header">
-   
+
                    <h2>
                        Center Information
                    </h2>
-   
+
                    <button
                        class="secondary-button"
                        data-action="centers"
                    >
                        ← Back
                    </button>
-   
+
                </div>
-   
+
                <div class="details-grid">
-   
-                   ${detailItem(
-                       "Center Name",
-                       center.name
-                   )}
-   
-                   ${detailItem(
-                       "Address",
-                       center.address
-                   )}
-   
-                   ${detailItem(
-                       "Phone",
-                       center.phone
-                   )}
-   
-                   ${detailItem(
-                       "Status",
-                       center.active
-                           ? statusBadge("Available", "Active")
-                           : statusBadge("Retired", "Inactive")
-                   )}
-   
+
+                   ${detailItem("Center Name", escapeHTML(center.centerName))}
+
+                   ${detailItem("Address", escapeHTML(center.address))}
+
+                   ${detailItem("Phone", escapeHTML(center.phone))}
+
+                   ${detailItem("Status", centerStatusBadge(center.isActive))}
+
                </div>
-   
+
            </section>
-   
+
            <section class="content-card">
-   
+
                <div class="card-header">
-   
+
                    <h2>
                        Associated Devices
                    </h2>
-   
+
+                   <span class="record-count">
+                       ${centerDevices.length} records
+                   </span>
+
                </div>
-   
+
                <div class="table-container">
-   
+
                    <table>
-   
+
                        <thead>
                            <tr>
                                <th>Asset Tag</th>
@@ -2140,33 +2124,31 @@
                                <th>Status</th>
                            </tr>
                        </thead>
-   
+
                        <tbody>
-   
+
                            ${
-                               devices.length
-                                   ? devices
+                               centerDevices.length
+                                   ? centerDevices
                                        .map(device => `
                                            <tr>
                                                <td>
-                                                   ${escapeHTML(
-                                                       device.assetTag
-                                                   )}
+                                                   <button
+                                                       class="table-link"
+                                                       data-action="device-details"
+                                                       data-id="${device.deviceId}"
+                                                   >
+                                                       ${escapeHTML(device.assetTag)}
+                                                   </button>
                                                </td>
                                                <td>
-                                                   ${escapeHTML(
-                                                       device.type
-                                                   )}
+                                                   ${escapeHTML(device.typeLabel)}
                                                </td>
                                                <td>
-                                                   ${escapeHTML(
-                                                       device.model
-                                                   )}
+                                                   ${escapeHTML(device.model)}
                                                </td>
                                                <td>
-                                                   ${statusBadge(
-                                                       device.status
-                                                   )}
+                                                   ${deviceStatusBadge(device.status)}
                                                </td>
                                            </tr>
                                        `)
@@ -2179,20 +2161,19 @@
                                        </tr>
                                    `
                            }
-   
+
                        </tbody>
-   
+
                    </table>
-   
+
                </div>
-   
+
            </section>
        `;
-   
+
        setupPageActions();
    }
-   
-   
+
    /* =========================================================
       LOANS
       ========================================================= */
@@ -2201,13 +2182,10 @@
        const content = document.getElementById("main-content");
        content.innerHTML = `${pageHeader("Loan Management", "Track technology loans and expected returns.")}<section class="content-card"><div class="empty-state">Loading loans from the API…</div></section>`;
        try {
-           const [loanResult, deviceResult, centerResult, reasonResult] = await Promise.all([
-               window.CTLApi.loans.list(), window.CTLApi.devices.list(),
-               window.CTLApi.centers.list(), window.CTLApi.loanReasons.list()
+           const [rows, devices, centers, reasonResult] = await Promise.all([
+               fetchAllPages(params => window.CTLApi.loans.list(params)), fetchAllDevices(),
+               fetchAllCenters(), window.CTLApi.loanReasons.list()
            ]);
-           const rows = responseRows(loanResult);
-           const devices = responseRows(deviceResult);
-           const centers = responseRows(centerResult);
            const reasons = responseRows(reasonResult);
            const availableDevices = devices.filter(device => device.status === "AVAILABLE");
            const loans = rows.map(loan => {
@@ -2406,8 +2384,7 @@
    
        content.innerHTML = `${pageHeader("System Settings", "Configure outreach centers and loan reasons available through the API.")}<section class="content-card"><div class="empty-state">Loading settings from the API…</div></section>`;
        try {
-       const [centerResult, reasonResult] = await Promise.all([window.CTLApi.centers.list(), window.CTLApi.loanReasons.list()]);
-       const centers = responseRows(centerResult);
+       const [centers, reasonResult] = await Promise.all([fetchAllCenters(), window.CTLApi.loanReasons.list()]);
        const reasons = responseRows(reasonResult);
        content.innerHTML = `
    
@@ -2522,14 +2499,6 @@
            };
            const response = await window.CTLApi.loans.create(payload);
            const createdLoan = response?.data || response;
-           const apiDevices = responseRows(await window.CTLApi.devices.list());
-           const apiDevice = apiDevices.find(device => device.deviceId === payload.deviceId);
-           const localDevice = state.devices.find(device => device.assetTag === apiDevice?.assetTag);
-           if (localDevice) {
-               localDevice.status = "Assigned";
-               localDevice.assignedTo = payload.participantCode;
-               saveDevices();
-           }
            state.lastCreatedLoanId = createdLoan?.loanId;
            showToast("Loan created successfully.", "success");
            await renderLoans();
@@ -2668,9 +2637,9 @@
       PAGE ACTIONS
       ========================================================= */
    
-   function setupPageActions() {
-   
-       document
+   function setupPageActions(root = document) {
+
+       root
            .querySelectorAll("[data-action]")
            .forEach(element => {
    
@@ -2758,18 +2727,8 @@
            case "return-loan":
                if (window.confirm("Record this device as returned?")) {
                    try {
-                       const loan = (state.currentLoans || []).find(item => String(item.loanId) === String(id));
+                       // The API sets the device back to AVAILABLE itself.
                        await window.CTLApi.loans.returnDevice(id, { returnDate: new Date().toISOString() });
-                       if (loan) {
-                           const apiDevices = responseRows(await window.CTLApi.devices.list());
-                           const apiDevice = apiDevices.find(device => device.deviceId === loan.deviceId);
-                           const localDevice = state.devices.find(device => device.assetTag === apiDevice?.assetTag);
-                           if (localDevice) {
-                               localDevice.status = "Available";
-                               localDevice.assignedTo = "";
-                               saveDevices();
-                           }
-                       }
                        showToast("Device return recorded.", "success");
                        await renderLoans();
                    } catch (error) {
@@ -2792,24 +2751,44 @@
                break;
 
            case "edit-loan-reason": {
-               const reasons = responseRows(await window.CTLApi.loanReasons.list());
-               const reason = reasons.find(item => String(item.reasonId) === String(id));
-               if (reason) {
+               try {
+                   const reasons = responseRows(await window.CTLApi.loanReasons.list());
+                   const reason = reasons.find(item => String(item.reasonId) === String(id));
+                   if (!reason) {
+                       showToast("Loan reason not found. Reload the page and try again.", "error");
+                       break;
+                   }
                    state.settingsForm = { kind: "reason", id: reason.reasonId, name: reason.reasonName };
                    await renderSettings();
+               } catch (error) {
+                   console.error("Unable to open the loan reason editor.", error);
+                   showToast(`Could not load this loan reason. ${apiErrorMessage(error, "")}`, "error");
                }
                break;
            }
 
            case "edit-center": {
-               const centers = responseRows(await window.CTLApi.centers.list());
-               const center = centers.find(item => String(item.centerId) === String(id));
-               if (center) {
+               try {
+                   const centers = await fetchAllCenters();
+                   const center = centers.find(item => String(item.centerId) === String(id));
+                   if (!center) {
+                       showToast("Outreach center not found. Reload the page and try again.", "error");
+                       break;
+                   }
                    state.settingsForm = { kind: "center", id: center.centerId };
                    await renderSettings();
+               } catch (error) {
+                   console.error("Unable to open the center editor.", error);
+                   showToast(`Could not load this outreach center. ${apiErrorMessage(error, "")}`, "error");
                }
                break;
            }
+
+           case "retry-render":
+               if (typeof state.retryRender === "function") {
+                   await state.retryRender();
+               }
+               break;
 
            case "cancel-settings-form":
                state.settingsForm = null;
@@ -2839,23 +2818,29 @@
            <tr>
    
                <td>
-                   ${escapeHTML(device.assetTag)}
+                   <button
+                       class="table-link"
+                       data-action="device-details"
+                       data-id="${device.deviceId}"
+                   >
+                       ${escapeHTML(device.assetTag)}
+                   </button>
                </td>
-   
+
                <td>
-                   ${escapeHTML(device.type)}
+                   ${escapeHTML(device.typeLabel)}
                </td>
-   
+
                <td>
                    ${escapeHTML(device.model)}
                </td>
-   
+
                <td>
-                   ${statusBadge(device.status)}
+                   ${deviceStatusBadge(device.status)}
                </td>
-   
+
                <td>
-                   ${escapeHTML(device.center)}
+                   ${escapeHTML(device.centerName)}
                </td>
    
            </tr>
@@ -2930,36 +2915,13 @@
       LOCAL STORAGE
       ========================================================= */
    
-   function saveDevices() {
-   
-       localStorage.setItem(
-           "ctl_devices",
-           JSON.stringify(state.devices)
-       );
-   }
-   
-   
-   function loadDevices() {
-   
-       const saved =
-           localStorage.getItem(
-               "ctl_devices"
-           );
-   
-       if (!saved) {
-           return;
-       }
-   
+   // Devices used to be cached in localStorage ("ctl_devices"). They now
+   // always come from the API, so drop any stale copy left by older builds.
+   function clearLegacyDeviceCache() {
        try {
-   
-           state.devices =
-               JSON.parse(saved);
-   
+           localStorage.removeItem("ctl_devices");
        } catch (error) {
-   
-           console.error(
-               "Unable to load saved devices."
-           );
+           // Storage unavailable (private mode, blocked); nothing to clear.
        }
    }
 
@@ -3079,7 +3041,7 @@
       INITIAL DATA LOAD
       ========================================================= */
    
-   loadDevices();
+   clearLegacyDeviceCache();
    loadUsers();
    
    console.log(
