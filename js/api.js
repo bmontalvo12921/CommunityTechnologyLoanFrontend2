@@ -2,8 +2,7 @@
  * Community Technology Loan
  * API Client
  *
- * Backend:
- * https://api.jmcallister.dev
+ * Backend URL is configured in js/config.js.
  *
  * Authentication:
  * POST /v1/dev/token
@@ -58,6 +57,7 @@
 
         centers: {
             list: `${API_PREFIX}/centers`,
+            create: `${API_PREFIX}/centers`,
             get: (id) => `${API_PREFIX}/centers/${id}`,
             update: (id) => `${API_PREFIX}/centers/${id}`,
             inventory: (id) => `${API_PREFIX}/centers/${id}/inventory`,
@@ -72,7 +72,9 @@
         },
 
         loanReasons: {
-            list: `${API_PREFIX}/loan-reasons`
+            list: `${API_PREFIX}/loan-reasons`,
+            create: `${API_PREFIX}/loan-reasons`,
+            update: (id) => `${API_PREFIX}/loan-reasons/${id}`
         },
 
         maintenance: {
@@ -792,6 +794,10 @@
             );
         },
 
+        create: async function (data) {
+            return apiPost(API_ROUTES.centers.create, data);
+        },
+
 
         /**
          * Get one outreach center.
@@ -858,6 +864,10 @@
             );
         },
 
+        create: async function (data) {
+            return apiPost(API_ROUTES.loans.list, data);
+        },
+
 
         /**
          * Get one loan.
@@ -915,6 +925,12 @@
             return apiGet(
                 API_ROUTES.loanReasons.list
             );
+        },
+        create: async function (data) {
+            return apiPost(API_ROUTES.loanReasons.create, data);
+        },
+        update: async function (id, data) {
+            return apiPatch(API_ROUTES.loanReasons.update(id), data);
         }
     };
 

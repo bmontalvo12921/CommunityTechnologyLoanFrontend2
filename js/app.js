@@ -176,7 +176,9 @@
                status: "Active",
                lastLogin: "2026-09-28 08:42 AM"
            }
-       ]
+       ],
+       userFormId: null,
+       settingsForm: null
    };
    
    
@@ -1795,7 +1797,11 @@
                                    ) === selectedCenterName
                                );
 
-                           const centerId = Number(apiCenter?.id);
+                           // The API's center payload uses `centerId`; accept
+                           // `id` as well for compatibility with older data.
+                           const centerId = Number(
+                               apiCenter?.centerId ?? apiCenter?.id
+                           );
 
                            if (!Number.isInteger(centerId) || centerId < 1) {
                                throw new Error(
@@ -2191,124 +2197,47 @@
       LOANS
       ========================================================= */
    
-   function renderLoans() {
-   
-       const content =
-           document.getElementById("main-content");
-   
-       content.innerHTML = `
-   
-           ${pageHeader(
-               "Loan Management",
-               "Track technology loans and expected returns."
-           )}
-   
-           <section class="content-card">
-   
-               <div class="card-header">
-   
-                   <h2>
-                       Current Loans
-                   </h2>
-   
-                   <span class="record-count">
-                       ${state.loans.length} records
-                   </span>
-   
-               </div>
-   
-               <div class="table-container">
-   
-                   <table>
-   
-                       <thead>
-   
-                           <tr>
-                               <th>Device</th>
-                               <th>Asset ID</th>
-                               <th>Borrower / Department</th>
-                               <th>Outreach Center</th>
-                               <th>Status</th>
-                               <th>Loan Date</th>
-                               <th>Expected Return</th>
-                               <th>Actions</th>
-                           </tr>
-   
-                       </thead>
-   
-                       <tbody>
-   
-                           ${state.loans
-                               .map(loan => `
-   
-                                   <tr>
-   
-                                       <td>
-                                           ${escapeHTML(
-                                               loan.device
-                                           )}
-                                       </td>
-   
-                                       <td>
-                                           ${escapeHTML(
-                                               loan.assetTag
-                                           )}
-                                       </td>
-   
-                                       <td>
-                                           ${escapeHTML(
-                                               loan.borrower
-                                           )}
-                                       </td>
-   
-                                       <td>
-                                           ${escapeHTML(
-                                               loan.center
-                                           )}
-                                       </td>
-   
-                                       <td>
-                                           ${loanStatusBadge(
-                                               loan.status
-                                           )}
-                                       </td>
-   
-                                       <td>
-                                           ${escapeHTML(
-                                               loan.loanDate
-                                           )}
-                                       </td>
-   
-                                       <td>
-                                           ${escapeHTML(
-                                               loan.returnDate
-                                           )}
-                                       </td>
-   
-                                       <td>
-                                           <button
-                                               class="small-button"
-                                               data-action="loan-message"
-                                           >
-                                               View
-                                           </button>
-                                       </td>
-   
-                                   </tr>
-   
-                               `)
-                               .join("")}
-   
-                       </tbody>
-   
-                   </table>
-   
-               </div>
-   
-           </section>
-       `;
-   
-       setupPageActions();
+   async function renderLoans() {
+       const content = document.getElementById("main-content");
+       content.innerHTML = `${pageHeader("Loan Management", "Track technology loans and expected returns.")}<section class="content-card"><div class="empty-state">Loading loans from the API…</div></section>`;
+       try {
+           const [loanResult, deviceResult, centerResult, reasonResult] = await Promise.all([
+               window.CTLApi.loans.list(), window.CTLApi.devices.list(),
+               window.CTLApi.centers.list(), window.CTLApi.loanReasons.list()
+           ]);
+           const rows = responseRows(loanResult);
+           const devices = responseRows(deviceResult);
+           const centers = responseRows(centerResult);
+           const reasons = responseRows(reasonResult);
+           const availableDevices = devices.filter(device => device.status === "AVAILABLE");
+           const loans = rows.map(loan => {
+               const device = devices.find(item => item.deviceId === loan.deviceId) || {};
+               const center = centers.find(item => item.centerId === loan.centerId) || {};
+               const reason = reasons.find(item => item.reasonId === loan.reasonId) || {};
+               return { ...loan, deviceName: `${device.manufacturer || "Device"} ${device.model || ""}`.trim(), assetTag: device.assetTag || `Device #${loan.deviceId}`, centerName: center.centerName || `Center #${loan.centerId}`, reasonName: reason.reasonName || "—" };
+           });
+           state.currentLoans = loans;
+           content.innerHTML = `${pageHeader("Loan Management", "Create loans, review active records, and record returns.")}
+               <section class="content-card"><div class="card-header"><h2>Check Out a Device</h2></div>
+               ${availableDevices.length && centers.length && reasons.length ? `<form id="loan-create-form" class="form-grid">
+                   <label>Available Device<select name="deviceId" required>${availableDevices.map(device => `<option value="${device.deviceId}">${escapeHTML(device.assetTag)} — ${escapeHTML(device.model)}</option>`).join("")}</select></label>
+                   <label>Outreach Center<select name="centerId" required>${centers.filter(center => center.isActive).map(center => `<option value="${center.centerId}">${escapeHTML(center.centerName)}</option>`).join("")}</select></label>
+                   <label>Loan Reason<select name="reasonId" required>${reasons.map(reason => `<option value="${reason.reasonId}">${escapeHTML(reason.reasonName)}</option>`).join("")}</select></label>
+                   <label>Borrower / Participant Code<input name="participantCode" maxlength="50" required placeholder="e.g. PART-1004"></label>
+                   <label>Checkout Date<input type="datetime-local" name="checkoutDate" required value="${toDateTimeLocal(new Date())}"></label>
+                   <label>Expected Return<input type="datetime-local" name="dueDate" required value="${toDateTimeLocal(new Date(Date.now() + 14 * 86400000))}"></label>
+                   <div class="full-width form-actions"><button class="primary-button" type="submit">Create Loan</button></div>
+               </form>` : `<div class="empty-state"><p>No available devices, active centers, or loan reasons are available for a new loan.</p></div>`}</section>
+               <section class="content-card"><div class="card-header"><h2>Loan Records</h2><span class="record-count">${loans.length} records</span></div><div class="table-container"><table><thead><tr><th>Device</th><th>Asset Tag</th><th>Borrower</th><th>Outreach Center</th><th>Reason</th><th>Status</th><th>Checkout</th><th>Due</th><th>Actions</th></tr></thead><tbody>
+               ${loans.map(loan => `<tr><td>${escapeHTML(loan.deviceName)}</td><td>${escapeHTML(loan.assetTag)}</td><td>${escapeHTML(loan.participantCode)}</td><td>${escapeHTML(loan.centerName)}</td><td>${escapeHTML(loan.reasonName)}</td><td>${loanStatusBadge(apiLoanStatus(loan.loanStatus))}</td><td>${escapeHTML(formatDate(loan.checkoutDate))}</td><td>${escapeHTML(formatDate(loan.dueDate))}</td><td>${loan.loanStatus === "RETURNED" ? "Returned" : `<button class="small-button" data-action="return-loan" data-id="${loan.loanId}">Record Return</button>`}</td></tr>`).join("") || `<tr><td colspan="9">No loan records returned by the API.</td></tr>`}
+               </tbody></table></div></section>`;
+           setupPageActions();
+           const form = document.getElementById("loan-create-form");
+           if (form) form.addEventListener("submit", handleCreateLoan);
+       } catch (error) {
+           content.innerHTML = `${pageHeader("Loan Management", "Track technology loans and expected returns.")}<section class="content-card"><div class="empty-state"><h2>Could not load loans</h2><p>${escapeHTML(error.message || "Check that the local API is running.")}</p><button class="primary-button" data-action="reload-loans">Try Again</button></div></section>`;
+           setupPageActions();
+       }
    }
    
    
@@ -2330,10 +2259,11 @@
    
        content.innerHTML = `
    
-           ${pageHeader(
-               "User Management",
-               "Manage system users and role-based access."
-           )}
+           ${pageHeader("User Management", "Manage the demo user directory for this browser.")}
+
+           <section class="content-card"><p class="settings-note">The backend repository does not provide user or authentication routes. These directory entries are stored in this browser only and do not provision login accounts.</p></section>
+
+           ${state.userFormId !== null ? renderUserForm() : ""}
    
            <section class="content-card">
    
@@ -2441,6 +2371,20 @@
        `;
    
        setupPageActions();
+       const form = document.getElementById("user-editor-form");
+       if (form) form.addEventListener("submit", saveUserForm);
+   }
+
+   function renderUserForm() {
+       const user = state.users.find(item => String(item.id) === String(state.userFormId));
+       const editing = Boolean(user);
+       return `<section class="content-card"><div class="card-header"><h2>${editing ? "Edit User" : "Add User"}</h2></div><form id="user-editor-form" class="form-grid">
+           <label class="full-width">Full Name<input name="name" required maxlength="100" value="${escapeAttribute(user?.name || "")}"></label>
+           <label>Email<input name="email" type="email" required maxlength="160" value="${escapeAttribute(user?.email || "")}" ${editing ? "readonly" : ""}></label>
+           <label>Role<select name="role"><option value="STAFF" ${user?.role === "STAFF" ? "selected" : ""}>Staff</option><option value="ADMIN" ${user?.role === "ADMIN" ? "selected" : ""}>Admin</option></select></label>
+           <label>Status<select name="status"><option ${user?.status !== "Inactive" ? "selected" : ""}>Active</option><option ${user?.status === "Inactive" ? "selected" : ""}>Inactive</option></select></label>
+           <div class="full-width form-actions"><button type="button" class="secondary-button" data-action="cancel-user-edit">Cancel</button><button type="submit" class="primary-button">Save User</button></div>
+       </form></section>`;
    }
    
    
@@ -2448,7 +2392,7 @@
       SETTINGS
       ========================================================= */
    
-   function renderSettings() {
+   async function renderSettings() {
    
        if (state.currentUser?.role !== "ADMIN") {
    
@@ -2460,6 +2404,11 @@
        const content =
            document.getElementById("main-content");
    
+       content.innerHTML = `${pageHeader("System Settings", "Configure outreach centers and loan reasons available through the API.")}<section class="content-card"><div class="empty-state">Loading settings from the API…</div></section>`;
+       try {
+       const [centerResult, reasonResult] = await Promise.all([window.CTLApi.centers.list(), window.CTLApi.loanReasons.list()]);
+       const centers = responseRows(centerResult);
+       const reasons = responseRows(reasonResult);
        content.innerHTML = `
    
            ${pageHeader(
@@ -2467,6 +2416,14 @@
                "Administrative configuration for the technology loan system."
            )}
    
+           <section class="content-card"><div class="card-header"><h2>Outreach Centers</h2></div><div class="table-container"><table><thead><tr><th>Name</th><th>Address</th><th>Phone</th><th>Status</th><th>Action</th></tr></thead><tbody>
+           ${centers.map(center => `<tr><td>${escapeHTML(center.centerName)}</td><td>${escapeHTML(center.address)}</td><td>${escapeHTML(center.phone)}</td><td>${center.isActive ? "Active" : "Inactive"}</td><td><button class="small-button" data-action="edit-center" data-id="${center.centerId}">Edit</button></td></tr>`).join("") || `<tr><td colspan="5">No centers found.</td></tr>`}
+           </tbody></table></div>${state.settingsForm?.kind === "center" ? renderCenterForm(centers.find(center => String(center.centerId) === String(state.settingsForm.id))) : ""}</section>
+
+           <section class="content-card"><div class="card-header"><h2>Loan Reasons</h2><button class="primary-button" data-action="add-loan-reason">+ Add Reason</button></div>
+           ${state.settingsForm?.kind === "reason" ? renderReasonForm() : ""}
+           <div class="table-container"><table><thead><tr><th>Reason</th><th>Action</th></tr></thead><tbody>${reasons.map(reason => `<tr><td>${escapeHTML(reason.reasonName)}</td><td><button class="small-button" data-action="edit-loan-reason" data-id="${reason.reasonId}">Rename</button></td></tr>`).join("") || `<tr><td colspan="2">No reasons found.</td></tr>`}</tbody></table></div></section>
+
            <section class="settings-grid">
    
                <div class="settings-card">
@@ -2477,7 +2434,7 @@
    
                    <p>
                        Configure role-based access for Staff
-                       and Admin users.
+                       and Admin users. User accounts are demo-only until an authentication API is available.
                    </p>
    
                    <button
@@ -2495,17 +2452,9 @@
                        Inventory Settings
                    </h2>
    
-                   <p>
-                       Configure device types, inventory
-                       requirements, and asset identification.
-                   </p>
+                   <p>Device types supported by the API: Laptop, Tablet, and Hotspot. The backend does not expose editable device-type settings.</p>
    
-                   <button
-                       class="secondary-button"
-                       data-action="settings-message"
-                   >
-                       Configure
-                   </button>
+                   <span class="settings-readonly">Read-only API options</span>
    
                </div>
    
@@ -2515,17 +2464,9 @@
                        Status Options
                    </h2>
    
-                   <p>
-                       Available, Assigned, Maintenance,
-                       and Retired.
-                   </p>
+                   <p>Device lifecycle status is controlled by loan and maintenance operations. Status changes cannot be manually edited here.</p>
    
-                   <button
-                       class="secondary-button"
-                       data-action="settings-message"
-                   >
-                       Manage Statuses
-                   </button>
+                   <span class="settings-readonly">Changed through Loans and Maintenance</span>
    
                </div>
    
@@ -2535,17 +2476,9 @@
                        System Preferences
                    </h2>
    
-                   <p>
-                       General application preferences and
-                       administrative options.
-                   </p>
+                   <p>Use the center and loan-reason controls above to manage values supported by the API.</p>
    
-                   <button
-                       class="secondary-button"
-                       data-action="settings-message"
-                   >
-                       Open Preferences
-                   </button>
+                   <span class="settings-readonly">Manage centers and reasons above</span>
    
                </div>
    
@@ -2553,6 +2486,136 @@
        `;
    
        setupPageActions();
+       content.querySelectorAll("form[data-settings-form]").forEach(form => form.addEventListener("submit", handleSettingsForm));
+       } catch (error) {
+           content.innerHTML = `${pageHeader("System Settings", "Configure administrative options.")}<section class="content-card"><div class="empty-state"><h2>Could not load API settings</h2><p>${escapeHTML(error.message || "Check that the local API is running.")}</p><button class="primary-button" data-action="reload-settings">Try Again</button></div></section>`;
+           setupPageActions();
+       }
+   }
+
+   function renderReasonForm() {
+       const editing = state.settingsForm?.id != null;
+       return `<form data-settings-form="reason" class="form-grid"><label class="full-width">${editing ? "Rename Reason" : "New Reason"}<input name="reasonName" required maxlength="100" value="${escapeAttribute(state.settingsForm?.name || "")}"></label><input type="hidden" name="reasonId" value="${escapeAttribute(state.settingsForm?.id || "")}"><div class="full-width form-actions"><button type="button" class="secondary-button" data-action="cancel-settings-form">Cancel</button><button class="primary-button" type="submit">Save Reason</button></div></form>`;
+   }
+
+   function renderCenterForm(center) {
+       if (!center) return "";
+       state.settingsForm = { kind: "center", id: center.centerId };
+       return `<form data-settings-form="center" class="form-grid"><label>Name<input name="centerName" required maxlength="100" value="${escapeAttribute(center.centerName)}"></label><label>Phone<input name="phone" required maxlength="20" value="${escapeAttribute(center.phone)}"></label><label class="full-width">Address<input name="address" required maxlength="255" value="${escapeAttribute(center.address)}"></label><label class="full-width"><input type="checkbox" name="isActive" ${center.isActive ? "checked" : ""}> Center is active</label><input type="hidden" name="centerId" value="${center.centerId}"><div class="full-width form-actions"><button type="button" class="secondary-button" data-action="cancel-settings-form">Cancel</button><button class="primary-button" type="submit">Save Center</button></div></form>`;
+   }
+
+   async function handleCreateLoan(event) {
+       event.preventDefault();
+       const form = event.currentTarget;
+       const data = new FormData(form);
+       const submit = form.querySelector('button[type="submit"]');
+       submit.disabled = true;
+       submit.textContent = "Saving…";
+       try {
+           const payload = {
+               deviceId: Number(data.get("deviceId")),
+               centerId: Number(data.get("centerId")),
+               reasonId: Number(data.get("reasonId")),
+               participantCode: String(data.get("participantCode")).trim(),
+               checkoutDate: new Date(data.get("checkoutDate")).toISOString(),
+               dueDate: new Date(data.get("dueDate")).toISOString()
+           };
+           const response = await window.CTLApi.loans.create(payload);
+           const createdLoan = response?.data || response;
+           const apiDevices = responseRows(await window.CTLApi.devices.list());
+           const apiDevice = apiDevices.find(device => device.deviceId === payload.deviceId);
+           const localDevice = state.devices.find(device => device.assetTag === apiDevice?.assetTag);
+           if (localDevice) {
+               localDevice.status = "Assigned";
+               localDevice.assignedTo = payload.participantCode;
+               saveDevices();
+           }
+           state.lastCreatedLoanId = createdLoan?.loanId;
+           showToast("Loan created successfully.", "success");
+           await renderLoans();
+       } catch (error) {
+           submit.disabled = false;
+           submit.textContent = "Create Loan";
+           showToast(error.message || "Could not create the loan.", "error");
+       }
+   }
+
+   async function handleSettingsForm(event) {
+       event.preventDefault();
+       const form = event.currentTarget;
+       const fields = new FormData(form);
+       const kind = form.dataset.settingsForm;
+       const submit = form.querySelector('button[type="submit"]');
+       submit.disabled = true;
+       try {
+           if (kind === "center") {
+               const id = Number(fields.get("centerId"));
+               await window.CTLApi.centers.update(id, {
+                   centerName: String(fields.get("centerName")).trim(),
+                   address: String(fields.get("address")).trim(),
+                   phone: String(fields.get("phone")).trim(),
+                   isActive: fields.get("isActive") === "on"
+               });
+               showToast("Outreach center updated.", "success");
+           } else {
+               const reasonId = String(fields.get("reasonId") || "").trim();
+               const payload = { reasonName: String(fields.get("reasonName")).trim() };
+               if (reasonId) await window.CTLApi.loanReasons.update(Number(reasonId), payload);
+               else await window.CTLApi.loanReasons.create(payload);
+               showToast(reasonId ? "Loan reason renamed." : "Loan reason added.", "success");
+           }
+           state.settingsForm = null;
+           await renderSettings();
+       } catch (error) {
+           submit.disabled = false;
+           showToast(error.message || "Could not save this setting.", "error");
+       }
+   }
+
+   function saveUserForm(event) {
+       event.preventDefault();
+       const fields = new FormData(event.currentTarget);
+       const email = String(fields.get("email")).trim().toLowerCase();
+       const name = String(fields.get("name")).trim();
+       const role = String(fields.get("role"));
+       const status = String(fields.get("status"));
+       const existing = state.users.find(user => String(user.id) === String(state.userFormId));
+       if (!existing && state.users.some(user => user.email.toLowerCase() === email)) {
+           showToast("A user with that email already exists.", "error");
+           return;
+       }
+       if (existing && email === state.currentUser?.email?.toLowerCase() && (role !== "ADMIN" || status !== "Active")) {
+           showToast("You cannot remove admin access or deactivate the account currently in use.", "error");
+           return;
+       }
+       if (existing) Object.assign(existing, { name, role, status });
+       else state.users.push({ id: Date.now(), name, email, role, status, lastLogin: "Never" });
+       saveUsers();
+       state.userFormId = null;
+       showToast("Demo user directory saved in this browser.", "success");
+       renderUsers();
+   }
+
+   function responseRows(response) {
+       if (Array.isArray(response?.data)) return response.data;
+       if (Array.isArray(response?.data?.items)) return response.data.items;
+       if (Array.isArray(response)) return response;
+       return [];
+   }
+
+   function apiLoanStatus(status) {
+       return ({ ACTIVE: "Active", OVERDUE: "Overdue", RETURNED: "Returned" })[status] || status || "Unknown";
+   }
+
+   function formatDate(value) {
+       if (!value) return "—";
+       const date = new Date(value);
+       return Number.isNaN(date.valueOf()) ? String(value) : date.toLocaleString();
+   }
+
+   function toDateTimeLocal(date) {
+       const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+       return local.toISOString().slice(0, 16);
    }
    
    
@@ -2633,7 +2696,7 @@
    }
    
    
-   function handleAction(action, id) {
+   async function handleAction(action, id) {
    
        switch (action) {
    
@@ -2678,31 +2741,83 @@
                break;
    
            case "add-user":
-               showToast(
-                   "User creation will be connected to the backend during integration.",
-                   "info"
-               );
+               state.userFormId = "new";
+               renderUsers();
                break;
    
            case "edit-user":
-               showToast(
-                   "User editing will be connected to the backend during integration.",
-                   "info"
-               );
+               state.userFormId = id;
+               renderUsers();
                break;
    
-           case "loan-message":
-               showToast(
-                   "Loan details selected.",
-                   "info"
-               );
+           case "cancel-user-edit":
+               state.userFormId = null;
+               renderUsers();
+               break;
+
+           case "return-loan":
+               if (window.confirm("Record this device as returned?")) {
+                   try {
+                       const loan = (state.currentLoans || []).find(item => String(item.loanId) === String(id));
+                       await window.CTLApi.loans.returnDevice(id, { returnDate: new Date().toISOString() });
+                       if (loan) {
+                           const apiDevices = responseRows(await window.CTLApi.devices.list());
+                           const apiDevice = apiDevices.find(device => device.deviceId === loan.deviceId);
+                           const localDevice = state.devices.find(device => device.assetTag === apiDevice?.assetTag);
+                           if (localDevice) {
+                               localDevice.status = "Available";
+                               localDevice.assignedTo = "";
+                               saveDevices();
+                           }
+                       }
+                       showToast("Device return recorded.", "success");
+                       await renderLoans();
+                   } catch (error) {
+                       showToast(error.message || "Could not record the return.", "error");
+                   }
+               }
+               break;
+
+           case "reload-loans":
+               await renderLoans();
+               break;
+
+           case "reload-settings":
+               await renderSettings();
+               break;
+
+           case "add-loan-reason":
+               state.settingsForm = { kind: "reason", id: null, name: "" };
+               await renderSettings();
+               break;
+
+           case "edit-loan-reason": {
+               const reasons = responseRows(await window.CTLApi.loanReasons.list());
+               const reason = reasons.find(item => String(item.reasonId) === String(id));
+               if (reason) {
+                   state.settingsForm = { kind: "reason", id: reason.reasonId, name: reason.reasonName };
+                   await renderSettings();
+               }
+               break;
+           }
+
+           case "edit-center": {
+               const centers = responseRows(await window.CTLApi.centers.list());
+               const center = centers.find(item => String(item.centerId) === String(id));
+               if (center) {
+                   state.settingsForm = { kind: "center", id: center.centerId };
+                   await renderSettings();
+               }
+               break;
+           }
+
+           case "cancel-settings-form":
+               state.settingsForm = null;
+               await renderSettings();
                break;
    
            case "settings-message":
-               showToast(
-                   "Settings configuration selected.",
-                   "info"
-               );
+               showToast("This setting is read-only: the backend does not expose a route to change it.", "info");
                break;
    
            default:
@@ -2776,6 +2891,10 @@
        if (status === "Pending") {
            className = "maintenance";
        }
+
+       if (status === "Overdue") {
+           className = "maintenance";
+       }
    
        if (status === "Returned") {
            className = "available";
@@ -2841,6 +2960,19 @@
            console.error(
                "Unable to load saved devices."
            );
+       }
+   }
+
+   function saveUsers() {
+       localStorage.setItem("ctl_users", JSON.stringify(state.users));
+   }
+
+   function loadUsers() {
+       try {
+           const saved = localStorage.getItem("ctl_users");
+           if (saved) state.users = JSON.parse(saved);
+       } catch (error) {
+           console.error("Unable to load saved demo users.");
        }
    }
    
@@ -2948,6 +3080,7 @@
       ========================================================= */
    
    loadDevices();
+   loadUsers();
    
    console.log(
        "Community Technology Loan application ready."
