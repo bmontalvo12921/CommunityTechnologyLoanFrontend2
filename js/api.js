@@ -5,10 +5,11 @@
  * Backend URL is configured in js/config.js.
  *
  * Authentication:
- * POST /v1/dev/token
+ * POST /v1/auth/login
  * Body:
  * {
- *   tenantId: "eigen-it"
+ *   email: "admin@example.com",
+ *   password: "your-password"
  * }
  *
  * Protected requests:
@@ -43,7 +44,7 @@
         health: "/health",
 
         auth: {
-            token: `${API_PREFIX}/dev/token`
+            login: `${API_PREFIX}/auth/login`
         },
 
         devices: {
@@ -290,54 +291,59 @@
 
 
     // ============================================================
-    // DEVELOPMENT TOKEN
+    // USER LOGIN
     // ============================================================
 
-    async function getDevelopmentToken(
-        tenantId = DEFAULT_TENANT_ID
-    ) {
+    async function login(email, password) {
 
-        const url =
-            getApiBaseUrl() +
-            API_ROUTES.auth.token;
+        if (!email || !password) {
+            throw new Error("Email and password are required.");
+        }
 
-        const response =
-            await fetch(
-                url,
+        let response;
+
+        try {
+            response = await fetch(
+                getApiBaseUrl() + API_ROUTES.auth.login,
                 {
                     method: "POST",
-
                     headers: {
-                        "Content-Type":
-                            "application/json",
-
-                        "Accept":
-                            "application/json"
+                        "Content-Type": "application/json",
+                        "Accept": "application/json"
                     },
-
                     body: JSON.stringify({
-                        tenantId: tenantId
+                        email: email,
+                        password: password
                     })
                 }
             );
-
-        if (!response.ok) {
-
-            const errorText =
-                await response.text();
-
+        } catch (networkError) {
             throw new Error(
-                `Token request failed: ${response.status} ${response.statusText}` +
-                (
-                    errorText
-                        ? ` - ${errorText}`
-                        : ""
-                )
+                `Network error while logging in: ${networkError.message}`
             );
         }
 
-        const data =
-            await response.json();
+        let data;
+
+        try {
+            data = await response.json();
+        } catch (jsonError) {
+            throw new Error(
+                "The login server returned invalid JSON."
+            );
+        }
+
+        if (!response.ok) {
+            const message =
+                data && data.message
+                    ? data.message
+                    : `Login failed: ${response.status} ${response.statusText}`;
+
+            const error = new Error(message);
+            error.status = response.status;
+            error.data = data;
+            throw error;
+        }
 
         return saveApiToken(data);
     }
@@ -386,8 +392,7 @@
 
     async function apiRequest(
         path,
-        options = {},
-        retryOnUnauthorized = true
+        options = {}
     ) {
 
         const url =
@@ -414,34 +419,6 @@
                 )
         };
 
-        // --------------------------------------------------------
-        // Automatically obtain a development token when needed.
-        // --------------------------------------------------------
-
-        const isTokenRequest =
-            path === API_ROUTES.auth.token;
-
-        if (
-            !isTokenRequest &&
-            method !== "OPTIONS" &&
-            (
-                !getStoredToken() ||
-                isTokenExpired()
-            )
-        ) {
-
-            await getDevelopmentToken(
-                DEFAULT_TENANT_ID
-            );
-
-            requestOptions.headers =
-                buildHeaders(
-                    options.headers || {},
-                    method !== "GET" &&
-                    method !== "HEAD"
-                );
-        }
-
 
         let response;
 
@@ -462,78 +439,48 @@
 
 
         // --------------------------------------------------------
-        // Unauthorized
+        // UNAUTHORIZED
         // --------------------------------------------------------
 
-        if (
-            response.status === 401 &&
-            retryOnUnauthorized &&
-            !isTokenRequest
-        ) {
-
+        if (response.status === 401) {
             clearApiToken();
 
-            await getDevelopmentToken(
-                DEFAULT_TENANT_ID
-            );
-
-            return apiRequest(
-                path,
-                options,
-                false
+            throw new Error(
+                "Your session has expired or is invalid. Please log in again."
             );
         }
 
 
         // --------------------------------------------------------
-        // No content
+        // RESPONSE PARSING
         // --------------------------------------------------------
 
-        if (
-            response.status === 204
-        ) {
+        if (response.status === 204) {
             return null;
         }
 
-
-        // --------------------------------------------------------
-        // Read response
-        // --------------------------------------------------------
-
-        const contentType =
-            response.headers.get(
-                "content-type"
-            ) || "";
-
         let data;
 
-        if (
-            contentType.includes(
-                "application/json"
-            )
-        ) {
+        const contentType =
+            response.headers.get("content-type") || "";
+
+        if (contentType.includes("application/json")) {
 
             try {
-
-                data =
-                    await response.json();
-
+                data = await response.json();
             } catch (jsonError) {
-
                 throw new Error(
                     "The server returned invalid JSON."
                 );
             }
 
         } else {
-
-            data =
-                await response.text();
+            data = await response.text();
         }
 
 
         // --------------------------------------------------------
-        // HTTP error
+        // HTTP ERROR
         // --------------------------------------------------------
 
         if (!response.ok) {
@@ -714,7 +661,11 @@
         const query = new URLSearchParams();
 
         Object.entries(params).forEach(([key, value]) => {
-            if (value !== undefined && value !== null && value !== "") {
+            if (
+                value !== undefined &&
+                value !== null &&
+                value !== ""
+            ) {
                 query.set(key, String(value));
             }
         });
@@ -951,9 +902,11 @@
                 API_ROUTES.loanReasons.list
             );
         },
+
         create: async function (data) {
             return apiPost(API_ROUTES.loanReasons.create, data);
         },
+
         update: async function (id, data) {
             return apiPatch(API_ROUTES.loanReasons.update(id), data);
         }
@@ -1026,10 +979,8 @@
     const healthApi = {
 
         /**
-         * GET /health without authentication (no token request), so it
-         * can be used to wake up a sleeping server. Resolves to the
-         * parsed body when the server answers 2xx; rejects otherwise or
-         * when the request takes longer than timeoutMs.
+         * GET /health without authentication.
+         * Can be used to wake up a sleeping server.
          */
         check: async function (timeoutMs = 10000) {
 
@@ -1049,9 +1000,13 @@
                         getApiBaseUrl() + API_ROUTES.health,
                         {
                             method: "GET",
-                            headers: { "Accept": "application/json" },
+                            headers: {
+                                "Accept": "application/json"
+                            },
                             cache: "no-store",
-                            signal: controller ? controller.signal : undefined
+                            signal: controller
+                                ? controller.signal
+                                : undefined
                         }
                     );
 
@@ -1080,53 +1035,42 @@
     const authApi = {
 
         /**
-         * Get a fresh development token.
+         * Log in with an existing account.
          */
-        getDevelopmentToken:
-            getDevelopmentToken,
-
+        login: login,
 
         /**
          * Get currently stored token.
          */
-        getToken:
-            getStoredToken,
-
+        getToken: getStoredToken,
 
         /**
          * Check authentication state.
          */
-        isAuthenticated:
-            isAuthenticated,
-
+        isAuthenticated: isAuthenticated,
 
         /**
          * Get expiration timestamp.
          */
-        getTokenExpiry:
-            getTokenExpiry,
-
+        getTokenExpiry: getTokenExpiry,
 
         /**
-         * Clear token.
+         * Clear token and log out locally.
          */
-        logout:
-            clearApiToken,
-
+        logout: clearApiToken,
 
         /**
          * Get current tenant.
          */
-        getTenant:
-            function () {
+        getTenant: function () {
 
-                return (
-                    localStorage.getItem(
-                        TENANT_STORAGE_KEY
-                    ) ||
-                    DEFAULT_TENANT_ID
-                );
-            }
+            return (
+                localStorage.getItem(
+                    TENANT_STORAGE_KEY
+                ) ||
+                DEFAULT_TENANT_ID
+            );
+        }
     };
 
 
