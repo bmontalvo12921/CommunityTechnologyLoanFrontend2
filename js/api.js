@@ -44,8 +44,13 @@
         health: "/health",
 
         auth: {
-            login: `${API_PREFIX}/auth/login`
+            login: `${API_PREFIX}/auth/login`,
+            register: '${API_PREFIX}/auth/register'
         },
+        users: {
+            list: '${API_PREFIX}/users',
+            uodate: (id) => '${API_PREFIX}/users/${id}'
+        }
 
         devices: {
             list: `${API_PREFIX}/inventory`,
@@ -1027,7 +1032,24 @@
         }
     };
 
+// ============================================================
+// USER MANAGEMENT API
+// ============================================================
 
+    const userApi = {
+
+    list: async function () {
+        return apiGet(API_ROUTES.users.list);
+        },
+
+    create: async function (data) {
+        return apiPost(API_ROUTES.auth.register, data);
+        },
+
+    update: async function (id, data) {
+        return apiPatch(API_ROUTES.users.update(id), data);
+        }
+    };
     // ============================================================
     // AUTH API
     // ============================================================
@@ -1111,6 +1133,8 @@
 
         auth:
             authApi,
+        users:
+            userApi
 
         health:
             healthApi,
