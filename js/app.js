@@ -281,7 +281,67 @@
    /* =========================================================
       LOGIN
       ========================================================= */
-   
+   function renderLogin() {
+    const app = document.getElementById("app");
+
+    if (!app) {
+        return;
+    }
+
+    app.innerHTML = `
+        <div class="app-loading">
+            <div class="loading-content">
+                <div class="loading-brand">Tech Loan</div>
+                <div class="loading-subtitle">City of Orlando</div>
+
+                <section class="content-card">
+                    <h2>Sign In</h2>
+
+                    <form id="login-form">
+                        <div class="form-group">
+                            <label for="login-email">Email</label>
+                            <input
+                                type="email"
+                                id="login-email"
+                                name="email"
+                                autocomplete="username"
+                                required
+                            >
+                        </div>
+
+                        <div class="form-group">
+                            <label for="login-password">Password</label>
+                            <input
+                                type="password"
+                                id="login-password"
+                                name="password"
+                                autocomplete="current-password"
+                                required
+                            >
+                        </div>
+
+                        <div
+                            id="login-error"
+                            role="alert"
+                            style="display:none;"
+                        ></div>
+
+                        <button
+                            type="submit"
+                            class="primary-button"
+                        >
+                            Sign In
+                        </button>
+                    </form>
+                </section>
+            </div>
+        </div>
+    `;
+
+    document
+        .getElementById("login-form")
+        .addEventListener("submit", handleLogin);
+}
   async function handleLogin(event) {
 
     event.preventDefault();
