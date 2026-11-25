@@ -1134,7 +1134,7 @@
         auth:
             authApi,
         users:
-            userApi
+            userApi,
 
         health:
             healthApi,
