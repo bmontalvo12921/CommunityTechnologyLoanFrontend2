@@ -50,7 +50,7 @@
         users: {
             list: '${API_PREFIX}/users',
             update: (id) => '${API_PREFIX}/users/${id}'
-        }
+        },
 
         devices: {
             list: `${API_PREFIX}/inventory`,
