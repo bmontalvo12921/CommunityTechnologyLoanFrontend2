@@ -282,145 +282,73 @@
       LOGIN
       ========================================================= */
    
-   function renderLogin() {
-   
-       const app = document.getElementById("app");
-   
-       if (!app) {
-           return;
-       }
-   
-       app.innerHTML = `
-           <div class="login-container">
-   
-               <div class="login-card">
-   
-                   <div class="login-logo">
-   
-                       <h1>Tech Loan</h1>
-   
-                       <span>
-                           City of Orlando
-                       </span>
-   
-                   </div>
-   
-                   <h2>Staff Sign In</h2>
-   
-                   <p class="login-description">
-                       Community Technology Loan Project
-                       inventory management system.
-                   </p>
-   
-                   <div
-                       id="login-error"
-                       class="form-error"
-                       style="display:none;"
-                       role="alert"
-                   ></div>
-   
-                   <form id="login-form">
-   
-                       <div class="form-group">
-   
-                           <label for="login-email">
-                               Email
-                           </label>
-   
-                           <input
-                               id="login-email"
-                               name="email"
-                               type="email"
-                               autocomplete="username"
-                               placeholder="Enter your email"
-                               required
-                           >
-   
-                       </div>
-   
-                       <div class="form-group">
-   
-                           <label for="login-password">
-                               Password
-                           </label>
-   
-                           <input
-                               id="login-password"
-                               name="password"
-                               type="password"
-                               autocomplete="current-password"
-                               placeholder="Enter your password"
-                               required
-                           >
-   
-                       </div>
-   
-                       <button
-                           type="submit"
-                           class="login-button"
-                       >
-                           Sign In
-                       </button>
-   
-                   </form>
-   
-                   <div class="login-footer">
-   
-                       Internal City of Orlando
-                       Technology Loan System
-   
-                   </div>
-   
-               </div>
-   
-           </div>
-       `;
-   
-       const form = document.getElementById("login-form");
-   
-       form.addEventListener("submit", handleLogin);
-   }
-   
-   
-   function handleLogin(event) {
-   
-       event.preventDefault();
-   
-       const email =
-           document.getElementById("login-email").value.trim();
-   
-       const password =
-           document.getElementById("login-password").value;
-   
-       const errorBox =
-           document.getElementById("login-error");
-   
-       const account = demoAccounts.find(
-           user =>
-               user.email.toLowerCase() === email.toLowerCase() &&
-               user.password === password
-       );
-   
-       if (!account) {
-   
-           errorBox.textContent =
-               "Invalid email or password. Please try again.";
-   
-           errorBox.style.display = "block";
-   
-           return;
-       }
-   
-       saveSession({
-           name: account.name,
-           email: account.email,
-           role: account.role
-       });
-   
-       state.currentPage = "Dashboard";
-   
-       renderApplication();
-   }
+  async function handleLogin(event) {
+
+    event.preventDefault();
+
+    const email =
+        document.getElementById("login-email").value.trim();
+
+    const password =
+        document.getElementById("login-password").value;
+
+    const errorBox =
+        document.getElementById("login-error");
+
+    const submitButton =
+        event.target.querySelector('button[type="submit"]');
+
+    errorBox.style.display = "none";
+
+    if (!email || !password) {
+        errorBox.textContent = "Please enter your email and password.";
+        errorBox.style.display = "block";
+        return;
+    }
+
+    submitButton.disabled = true;
+    submitButton.textContent = "Signing In...";
+
+    try {
+
+        // Authenticate against the actual backend.
+        const result = await CTLApi.auth.login(email, password);
+
+        // The backend returns the authenticated user.
+        const user = result.user;
+
+        if (!user || !user.email || !user.role) {
+            throw new Error(
+                "The server did not return valid user information."
+            );
+        }
+
+        // Establish the application session.
+        saveSession({
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            status: user.status
+        });
+
+        state.currentPage = "Dashboard";
+
+        renderApplication();
+
+    } catch (error) {
+
+        console.error("Login failed:", error);
+
+        errorBox.textContent =
+            error.message || "Invalid email or password. Please try again.";
+
+        errorBox.style.display = "block";
+
+        submitButton.disabled = false;
+        submitButton.textContent = "Sign In";
+    }
+}
    
    
    /* =========================================================
@@ -782,7 +710,7 @@
        return { devices: state.devices, centers };
    }
 
-   // Best human-readable message from an API error.
+   // readable message from an API error.
    function apiErrorMessage(error, fallback) {
        const data = error?.data;
        if (data && typeof data === "object" && data.error) {
@@ -2354,16 +2282,118 @@
    }
 
    function renderUserForm() {
-       const user = state.users.find(item => String(item.id) === String(state.userFormId));
-       const editing = Boolean(user);
-       return `<section class="content-card"><div class="card-header"><h2>${editing ? "Edit User" : "Add User"}</h2></div><form id="user-editor-form" class="form-grid">
-           <label class="full-width">Full Name<input name="name" required maxlength="100" value="${escapeAttribute(user?.name || "")}"></label>
-           <label>Email<input name="email" type="email" required maxlength="160" value="${escapeAttribute(user?.email || "")}" ${editing ? "readonly" : ""}></label>
-           <label>Role<select name="role"><option value="STAFF" ${user?.role === "STAFF" ? "selected" : ""}>Staff</option><option value="ADMIN" ${user?.role === "ADMIN" ? "selected" : ""}>Admin</option></select></label>
-           <label>Status<select name="status"><option ${user?.status !== "Inactive" ? "selected" : ""}>Active</option><option ${user?.status === "Inactive" ? "selected" : ""}>Inactive</option></select></label>
-           <div class="full-width form-actions"><button type="button" class="secondary-button" data-action="cancel-user-edit">Cancel</button><button type="submit" class="primary-button">Save User</button></div>
-       </form></section>`;
-   }
+    const user = state.users.find(
+        item => String(item.id) === String(state.userFormId)
+    );
+
+    const editing = Boolean(user);
+
+    return `
+        <section class="content-card">
+
+            <div class="card-header">
+                <h2>${editing ? "Edit User" : "Add User"}</h2>
+            </div>
+
+            <form id="user-editor-form" class="form-grid">
+
+                <label class="full-width">
+                    Full Name
+                    <input
+                        name="name"
+                        required
+                        maxlength="100"
+                        value="${escapeAttribute(user?.name || "")}"
+                    >
+                </label>
+
+                <label>
+                    Email
+                    <input
+                        name="email"
+                        type="email"
+                        required
+                        maxlength="160"
+                        value="${escapeAttribute(user?.email || "")}"
+                        ${editing ? "readonly" : ""}
+                    >
+                </label>
+
+                <label>
+                    Role
+                    <select name="role" required>
+                        <option value="STAFF"
+                            ${user?.role === "STAFF" ? "selected" : ""}>
+                            Staff
+                        </option>
+                        <option value="ADMIN"
+                            ${user?.role === "ADMIN" ? "selected" : ""}>
+                            Admin
+                        </option>
+                    </select>
+                </label>
+
+                <label>
+                    Status
+                    <select name="status" required>
+                        <option value="Active"
+                            ${user?.status !== "Inactive" ? "selected" : ""}>
+                            Active
+                        </option>
+                        <option value="Inactive"
+                            ${user?.status === "Inactive" ? "selected" : ""}>
+                            Inactive
+                        </option>
+                    </select>
+                </label>
+
+                ${!editing ? `
+                    <label>
+                        Password
+                        <input
+                            name="password"
+                            type="password"
+                            required
+                            minlength="7"
+                            autocomplete="new-password"
+                        >
+                    </label>
+
+                    <label>
+                        Confirm Password
+                        <input
+                            name="confirmPassword"
+                            type="password"
+                            required
+                            minlength="12"
+                            autocomplete="new-password"
+                        >
+                    </label>
+                ` : ""}
+
+                <div class="full-width form-actions">
+
+                    <button
+                        type="button"
+                        class="secondary-button"
+                        data-action="cancel-user-edit"
+                    >
+                        Cancel
+                    </button>
+
+                    <button
+                        type="submit"
+                        class="primary-button"
+                    >
+                        ${editing ? "Save Changes" : "Create Account"}
+                    </button>
+
+                </div>
+
+            </form>
+        </section>
+    `;
+}
    
    
    /* =========================================================
@@ -2488,7 +2518,7 @@
        const submit = form.querySelector('button[type="submit"]');
        submit.disabled = true;
        submit.textContent = "Saving…";
-       try {
+       try {FR
            const payload = {
                deviceId: Number(data.get("deviceId")),
                centerId: Number(data.get("centerId")),
@@ -2548,6 +2578,7 @@
        const name = String(fields.get("name")).trim();
        const role = String(fields.get("role"));
        const status = String(fields.get("status"));
+       const password = String(fields.get("password"));
        const existing = state.users.find(user => String(user.id) === String(state.userFormId));
        if (!existing && state.users.some(user => user.email.toLowerCase() === email)) {
            showToast("A user with that email already exists.", "error");
