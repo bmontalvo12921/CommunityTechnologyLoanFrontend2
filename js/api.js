@@ -49,7 +49,7 @@
         },
         users: {
             list: '${API_PREFIX}/users',
-            uodate: (id) => '${API_PREFIX}/users/${id}'
+            update: (id) => '${API_PREFIX}/users/${id}'
         }
 
         devices: {
